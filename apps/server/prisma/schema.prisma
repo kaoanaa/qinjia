@@ -1,0 +1,680 @@
+// 完美亲家 · 数据模型（PRD §7 逐表对齐；金额单位=分；行锁扣减见 QuotaLedger/§6.1）
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 枚举 ====================
+
+enum Relation {
+  FATHER
+  MOTHER
+  SELF
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum MemberLevel {
+  NONE
+  TRIAL
+  PAID
+  INTENTION
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  CLOSED // 注销（PIPL 匿名化后保留骨架）
+}
+
+enum AuditStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Education {
+  JUNIOR_HIGH
+  HIGH_SCHOOL
+  VOCATIONAL
+  COLLEGE
+  BACHELOR
+  MASTER
+  DOCTOR
+}
+
+enum IncomeRange {
+  BELOW_5K
+  R5K_10K
+  R10K_20K
+  R20K_50K
+  ABOVE_50K
+  UNDISCLOSED
+}
+
+enum HousingStatus {
+  OWNED_FULL
+  OWNED_MORTGAGE
+  NONE
+  UNDISCLOSED
+}
+
+enum CarStatus {
+  OWNED
+  NONE
+  UNDISCLOSED
+}
+
+enum MaritalStatus {
+  UNMARRIED
+  DIVORCED
+  WIDOWED
+  UNDISCLOSED
+}
+
+enum CertType {
+  ID_CARD_OCR
+  FACE
+}
+
+enum CertResult {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum QuotaSource {
+  NEWBIE
+  INVITE
+  PAID
+}
+
+enum QuotaStatus {
+  FROZEN
+  ACTIVE
+  EXPIRED
+}
+
+enum QuotaTxReason {
+  GRANT
+  DEDUCT
+  REFUND
+  EXPIRE
+  ZERO_OUT // 会员到期清零（D2）
+}
+
+enum UnlockStatus {
+  ACTIVE
+  EXPIRED
+  REFUNDED
+}
+
+enum UnlockPayType {
+  QUOTA
+  ONCE
+  COUPON
+}
+
+enum OrderType {
+  MEMBER
+  UNLOCK_ONCE
+}
+
+enum PayStatus {
+  CREATED
+  PAID
+  CLOSED
+}
+
+enum RefundStatus {
+  NONE
+  REQUESTED
+  REFUNDING
+  REFUNDED
+  REJECTED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+  CONTACT_CARD
+}
+
+enum ContactAction {
+  EXCHANGE_WECHAT
+  CALL_PHONE
+  SEND_PHOTO
+}
+
+enum CouponScope {
+  UNLOCK
+  MEMBER
+}
+
+enum UserCouponStatus {
+  UNUSED
+  USED
+  EXPIRED
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  REWARDED
+  REJECTED // 防刷拒绝
+}
+
+enum TicketType {
+  FEEDBACK
+  COMPLAINT
+  REPORT
+  REFUND
+}
+
+enum TicketStatus {
+  OPEN
+  PROCESSING
+  CLOSED
+}
+
+enum OpsSlotType {
+  BANNER
+  POPUP
+  TAB_CENTER
+}
+
+enum NotifyAuthStatus {
+  UNKNOWN
+  GRANTED
+  DENIED
+}
+
+enum ManagerLeadStatus {
+  NEW
+  ASSIGNED
+  FOLLOWING
+  DONE
+}
+
+enum AdminRole {
+  SUPER
+  REVIEWER
+  OPERATOR
+  FINANCE
+}
+
+// ==================== 用户与档案 ====================
+
+model User {
+  id            BigInt      @id @default(autoincrement())
+  openid        String      @unique
+  unionid       String?
+  phone         String?     @unique
+  nickname      String
+  avatarKey     String?
+  relation      Relation? // 最近选择；细化到档案
+  memberLevel   MemberLevel @default(NONE)
+  memberExpireAt DateTime? // 有效到期（顺延逻辑 D10）
+  inviteCode    String      @unique
+  invitedByUserId BigInt?
+  deviceFingerprint String?
+  idCardNoHash  String?     @unique // 三唯一之一（§6.6，存哈希不存明文 I5）
+  newbieRewardClaimed Boolean @default(false)
+  bigPayNotifyChild   Boolean @default(false) // 子女协助管理开关（§5.10）
+  cityOnlyVisible     Boolean @default(false) // 仅同城可见（§5.8）
+  status        UserStatus  @default(ACTIVE)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  profiles          Profile[]
+  quotas            MemberQuota[]
+  unlockInitiated   UnlockRecord[]  @relation("UnlockInitiator")
+  conversationsA    Conversation[]  @relation("ConvUserA")
+  conversationsB    Conversation[]  @relation("ConvUserB")
+  orders            Order[]
+  userCoupons       UserCoupon[]
+  referralsAsInviter Referral[]     @relation("ReferralInviter")
+  referralsAsInvitee Referral[]     @relation("ReferralInvitee")
+  tickets           Ticket[]
+  certifications    Certification[]
+  quotaTxLogs       QuotaTxLog[]
+  notifyPref        NotifyPref?
+  blacklistBlocks   Blacklist[]     @relation("BlacklistUser")
+  blacklistBlocked  Blacklist[]     @relation("BlacklistTarget")
+  views           ViewRecord[]     @relation("ViewFrom")
+  favorites       FavoriteRecord[] @relation("FavoriteFrom")
+  managerLead     ManagerLead?
+
+  @@index([invitedByUserId])
+}
+
+model Profile {
+  id             BigInt        @id @default(autoincrement())
+  matchNo        String        @unique // 相亲编号（防枚举生成）
+  ownerUserId    BigInt
+  isActive       Boolean       @default(false) // D1：单一生效档案
+  relation       Relation
+  gender         Gender
+  birthYear      Int
+  heightCm       Int
+  education      Education
+  occupation     String
+  incomeRange    IncomeRange   @default(UNDISCLOSED)
+  residenceCity    String
+  residenceDistrict  String?
+  hometown       String?
+  hukou          String?
+  housing        HousingStatus @default(UNDISCLOSED)
+  car            CarStatus     @default(UNDISCLOSED)
+  intro          String?       @db.Text // 家长评语
+  photos         Json // [{objectKey, sort}]
+  maritalStatus  MaritalStatus @default(UNDISCLOSED)
+  maritalProofKeys String?     @db.Text // JSON数组，NULL=未上传（D5）
+  isMaritalVerified Boolean    @default(false)
+  singleCommitmentSignedAt DateTime?
+  singleCommitmentIp       String?
+  singleCommitmentVersion  String?
+  auditStatus    AuditStatus   @default(DRAFT)
+  rejectReason   String?
+  publishedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  owner              User            @relation(fields: [ownerUserId], references: [id])
+  unlocks            UnlockRecord[]  @relation("UnlockTarget")
+  views              ViewRecord[]    @relation("ViewTarget")
+  favorites          FavoriteRecord[] @relation("FavoriteTarget")
+  consents           ConsentRecord[]
+  conversationsA     Conversation[]  @relation("ConvProfileA")
+  conversationsB     Conversation[]  @relation("ConvProfileB")
+  rotationMarks      FeedRotationCard[]
+
+  @@index([ownerUserId, isActive])
+  @@index([auditStatus, gender, birthYear])
+  @@index([residenceCity])
+}
+
+model Certification {
+  id         BigInt     @id @default(autoincrement())
+  userId     BigInt
+  profileId  BigInt?
+  type       CertType
+  result     CertResult @default(PENDING)
+  provider   String // aliyun/tencent/...
+  verifyToken String?
+  createdAt  DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, type, result])
+}
+
+model ConsentRecord {
+  id               BigInt   @id @default(autoincrement())
+  profileId        BigInt
+  childPhone       String // 加密存储（PIPL）
+  smsVerifiedAt    DateTime
+  statementVersion String
+  ip               String
+  createdAt        DateTime @default(now())
+
+  profile Profile @relation(fields: [profileId], references: [id])
+
+  @@index([profileId])
+}
+
+// ==================== 额度与解锁 ====================
+
+model MemberQuota {
+  id        BigInt      @id @default(autoincrement())
+  userId    BigInt
+  orderId   BigInt?
+  source    QuotaSource
+  total     Int
+  used      Int         @default(0)
+  remaining Int
+  status    QuotaStatus @default(FROZEN)
+  expireAt  DateTime
+  createdAt DateTime    @default(now())
+
+  user User           @relation(fields: [userId], references: [id])
+  txLogs QuotaTxLog[]
+  unlocks UnlockRecord[]
+
+  // FEFO 核心索引（§6.1）
+  @@index([userId, status, expireAt])
+}
+
+model QuotaTxLog {
+  id         BigInt        @id @default(autoincrement())
+  userId     BigInt
+  quotaId    BigInt?
+  reason     QuotaTxReason
+  change     Int // +发放 / -扣减 / +返还
+  refType    String? // unlock | order | invite | system
+  refId      BigInt?
+  createdAt  DateTime      @default(now())
+
+  user User         @relation(fields: [userId], references: [id])
+  quota MemberQuota? @relation(fields: [quotaId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+model UnlockRecord {
+  id               BigInt          @id @default(autoincrement())
+  initiatorUserId  BigInt
+  targetProfileId  BigInt
+  payType          UnlockPayType
+  orderId          BigInt?
+  userCouponId     BigInt?
+  quotaId          BigInt? // 扣自哪笔额度（Refunded 返还定位）
+  status           UnlockStatus
+  expireAt         DateTime // 恒 created+30d（D3/D12）
+  riskConfirmed    Boolean         @default(false) // 未核验档案二次确认留痕（§6.3）
+  createdAt        DateTime        @default(now())
+
+  initiator User         @relation("UnlockInitiator", fields: [initiatorUserId], references: [id])
+  target    Profile      @relation("UnlockTarget", fields: [targetProfileId], references: [id])
+  quota     MemberQuota? @relation(fields: [quotaId], references: [id])
+  conversations Conversation[]
+
+  @@unique([initiatorUserId, targetProfileId, status]) // 同状态仅一条；重解锁需旧记录已 expired/refunded
+  @@index([targetProfileId, status])
+  @@index([expireAt, status])
+}
+
+// ==================== 浏览/收藏/推荐 ====================
+
+model ViewRecord {
+  id          BigInt   @id @default(autoincrement())
+  fromUserId  BigInt
+  toProfileId BigInt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt // 重复浏览刷新时间
+
+  fromUser User    @relation("ViewFrom", fields: [fromUserId], references: [id])
+  target   Profile @relation("ViewTarget", fields: [toProfileId], references: [id])
+
+  @@unique([fromUserId, toProfileId])
+  @@index([toProfileId, updatedAt]) // 谁看过我（P1 墙）
+}
+
+model FavoriteRecord {
+  id            BigInt   @id @default(autoincrement())
+  fromUserId    BigInt
+  toProfileId   BigInt
+  createdAt     DateTime @default(now())
+
+  fromUser User    @relation("FavoriteFrom", fields: [fromUserId], references: [id])
+  target   Profile @relation("FavoriteTarget", fields: [toProfileId], references: [id])
+
+  @@unique([fromUserId, toProfileId])
+  @@index([toProfileId, createdAt])
+}
+
+model FeedRotationCard {
+  id        BigInt   @id @default(autoincrement())
+  profileId BigInt
+  day       DateTime @db.Date // 标记为"仅今日"的日期（D4）
+  createdAt DateTime @default(now())
+
+  profile Profile @relation(fields: [profileId], references: [id])
+
+  @@unique([profileId, day])
+  @@index([day])
+}
+
+model Blacklist {
+  id            BigInt   @id @default(autoincrement())
+  userId        BigInt
+  blockedUserId BigInt
+  createdAt     DateTime @default(now())
+
+  user    User @relation("BlacklistUser", fields: [userId], references: [id])
+  blocked User @relation("BlacklistTarget", fields: [blockedUserId], references: [id])
+
+  @@unique([userId, blockedUserId])
+}
+
+// ==================== 会话与消息（IM 元数据 + 留痕） ====================
+
+model Conversation {
+  id            BigInt    @id @default(autoincrement())
+  userA         BigInt
+  userB         BigInt
+  profileA      BigInt
+  profileB      BigInt
+  unlockRecordId BigInt? // 由哪次解锁开启
+  imConvId      String?   @unique
+  lastMsgAt     DateTime?
+  lastMsgDigest String?
+  createdAt     DateTime  @default(now())
+
+  userARef User           @relation("ConvUserA", fields: [userA], references: [id])
+  userBRef User           @relation("ConvUserB", fields: [userB], references: [id])
+  profileARef Profile     @relation("ConvProfileA", fields: [profileA], references: [id])
+  profileBRef Profile     @relation("ConvProfileB", fields: [profileB], references: [id])
+  unlock    UnlockRecord? @relation(fields: [unlockRecordId], references: [id])
+  messages  Message[]
+  contactActionLogs ContactActionLog[]
+
+  @@unique([userA, userB]) // 代码层保证 (a,b) 规范化排序
+  @@index([userA, lastMsgAt])
+  @@index([userB, lastMsgAt])
+}
+
+model Message {
+  id          BigInt      @id @default(autoincrement())
+  convId      BigInt
+  senderUserId BigInt
+  type        MessageType
+  content     String      @db.Text // IM 侧存原文；此处镜像/系统消息
+  imMsgId     String?     @unique
+  readFlag    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+
+  conv Conversation @relation(fields: [convId], references: [id])
+
+  @@index([convId, createdAt])
+}
+
+/// 接触升级行为留痕（§5.6，退款判定 D7）
+model ContactActionLog {
+  id           BigInt        @id @default(autoincrement())
+  convId       BigInt
+  actorUserId  BigInt
+  action       ContactAction
+  createdAt    DateTime      @default(now())
+
+  conv Conversation @relation(fields: [convId], references: [id])
+
+  @@index([convId, action]) // "已交换微信/已拨电话 → 不退"
+}
+
+// ==================== 订单 / 券 / 邀请 ====================
+
+model Order {
+  id            BigInt       @id @default(autoincrement())
+  userId        BigInt
+  type          OrderType
+  bizRef        String? // planId 或 targetProfileId
+  amountCent    Int
+  couponDeductCent Int      @default(0)
+  userCouponId  BigInt?
+  outTradeNo    String       @unique
+  transactionId String?      @unique // 支付回调幂等
+  payStatus     PayStatus    @default(CREATED)
+  refundStatus  RefundStatus @default(NONE)
+  refundNo      String?
+  refundAmountCent Int?
+  refundReason  String?
+  quotaGranted  Boolean      @default(false) // 发放幂等标记
+  paidAt        DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id])
+
+  @@index([userId, payStatus])
+}
+
+model CouponTemplate {
+  id            BigInt      @id @default(autoincrement())
+  name          String
+  scope         CouponScope
+  amountCent    Int
+  minAmountCent Int         @default(0)
+  validDays     Int
+  startAt       DateTime
+  endAt         DateTime
+  stock         Int         @default(0) // 0=不限
+  status        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+
+  coupons UserCoupon[]
+}
+
+model UserCoupon {
+  id         BigInt           @id @default(autoincrement())
+  templateId BigInt
+  userId     BigInt
+  status     UserCouponStatus @default(UNUSED)
+  expireAt   DateTime
+  orderId    BigInt?
+  source     String // renew_push / invite / manual ...
+  createdAt  DateTime         @default(now())
+
+  template CouponTemplate @relation(fields: [templateId], references: [id])
+  user     User           @relation(fields: [userId], references: [id])
+
+  @@index([userId, status, expireAt])
+}
+
+model Referral {
+  id           BigInt               @id @default(autoincrement())
+  inviterId    BigInt
+  inviteeId    BigInt               @unique // 终身仅 1 次被邀请奖励（§6.6）
+  rewardStatus ReferralRewardStatus @default(PENDING)
+  rewardedAt   DateTime?
+  createdAt    DateTime             @default(now())
+
+  inviter User @relation("ReferralInviter", fields: [inviterId], references: [id])
+  invitee User @relation("ReferralInvitee", fields: [inviteeId], references: [id])
+
+  @@index([inviterId, rewardStatus])
+}
+
+// ==================== 工单 / 管家 / 通知 / 运营 ====================
+
+model Ticket {
+  id           BigInt       @id @default(autoincrement())
+  userId       BigInt
+  type         TicketType
+  content      String       @db.Text
+  images       Json?
+  status       TicketStatus @default(OPEN)
+  slaDeadline  DateTime // 48h 首响（§6.5/§5.13）
+  handlerId    BigInt? // admin user
+  handlerNote  String?    @db.Text
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status, slaDeadline])
+}
+
+model ManagerLead {
+  id                BigInt            @id @default(autoincrement())
+  userId            BigInt
+  city              String
+  expectation       String            @db.Text
+  budgetCent        Int?
+  assignedManagerId BigInt?
+  convId            String? // 复用 IM 会话
+  status            ManagerLeadStatus @default(NEW)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId]) // 本期轻量版：一人一条
+}
+
+model NotifyPref {
+  id                BigInt           @id @default(autoincrement())
+  userId            BigInt           @unique
+  switches          Json // {review,expire,activity,reward...}
+  subscribeAuthStatus NotifyAuthStatus @default(UNKNOWN)
+  updatedAt         DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model OpsSlot {
+  id        BigInt      @id @default(autoincrement())
+  type      OpsSlotType
+  content   Json // 文案/图片/跳转
+  startAt   DateTime
+  endAt     DateTime
+  sort      Int         @default(0)
+  enabled   Boolean     @default(true)
+  updatedAt DateTime    @updatedAt
+
+  @@index([type, enabled, startAt, endAt])
+}
+
+/// 唯一配置真源（红线 I1：业务代码禁止出现裸数值）
+model RewardConfig {
+  configKey  String   @id // ConfigKeys 枚举值
+  value      Json
+  updatedBy  String? // admin 账号
+  updatedAt  DateTime @updatedAt
+}
+
+// ==================== 管理端 ====================
+
+model AdminUser {
+  id           BigInt    @id @default(autoincrement())
+  username     String    @unique
+  passwordHash String
+  role         AdminRole
+  enabled      Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+/// 后台关键操作审计（审核/退款/改配置）
+model AdminAuditLog {
+  id           BigInt   @id @default(autoincrement())
+  adminUserId  BigInt
+  action       String // profile_approve / refund / config_update ...
+  targetType   String
+  targetId     String
+  before       Json?
+  after        Json?
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([adminUserId, createdAt])
+}
+
+/// 解锁/详情等敏感接口限频记录可选走 Redis；此处存支付对账日切结果
+model ReconcileReport {
+  id          BigInt   @id @default(autoincrement())
+  day         DateTime @db.Date @unique
+  localCount  Int
+  remoteCount Int
+  diffDetail  Json?
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}

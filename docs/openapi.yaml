@@ -1,0 +1,1700 @@
+openapi: 3.0.3
+info:
+  title: 完美亲家 API
+  description: |
+    父母代子女相亲微信小程序后端契约（PRD v1.0 Step 2 产物）。
+    前缀 `/api/v1`（小程序端）与 `/admin/v1`（管理端）。
+    所有金额单位为**分**（int）；时间 ISO8601；鉴权 JWT Bearer。
+    规则真源在 PRD 与 `reward_config` 表：凡涉及价格/时长/额度/权重/话术的响应值均为配置下发，非服务端硬编码。
+  version: 0.2.0
+  license: { name: Proprietary }
+servers:
+  - url: http://localhost:3000
+    description: 本地开发
+tags:
+  - { name: auth, description: 登录/绑定手机 }
+  - { name: profile, description: 建档与多档案管理 }
+  - { name: cert, description: 实名认证与子女授权 }
+  - { name: quota, description: 额度账本 }
+  - { name: unlock, description: 解锁状态机（PRD §6.1） }
+  - { name: feed, description: 推荐流与详情（PRD §6.2/§6.3） }
+  - { name: conversation, description: 会话与消息元数据 }
+  - { name: contact, description: 接触升级（交换微信/电话/照片） }
+  - { name: member, description: 会员与订单 }
+  - { name: coupon, description: 优惠券 }
+  - { name: invite, description: 邀请裂变（P1） }
+  - { name: ops, description: 运营位与营销 }
+  - { name: misc, description: 消息中心/记录/搜索/工单/管家/设置 }
+  - { name: admin, description: 管理后台 }
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ==================== auth ====================
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: 微信一键登录（code2session）；新用户自动注册并发放 frozen 体验礼（D9）
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: wx.login 临时凭证 }
+                deviceFingerprint: { type: string, description: 设备指纹（防刷三唯一） }
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  isNewUser: { type: boolean }
+                  user: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/auth/bind-phone:
+    post:
+      tags: [auth]
+      summary: 手机号快速验证绑定（建档前置）
+      operationId: bindPhone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneCode]
+              properties:
+                phoneCode: { type: string, description: getPhoneNumber 动态令牌 }
+      responses:
+        "200":
+          description: 绑定成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前用户信息（含会员态/额度摘要）
+      operationId: getMe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: object
+                    properties:
+                      quotaBalance:
+                        $ref: "#/components/schemas/QuotaBalance"
+
+  # ==================== profile ====================
+  /api/v1/profiles:
+    get:
+      tags: [profile]
+      summary: 我的档案列表（D1 多档案）
+      operationId: listMyProfiles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileFull" }
+    post:
+      tags: [profile]
+      summary: 新建子女档案（草稿）
+      operationId: createProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpsert" }
+      responses:
+        "201":
+          description: 创建成功（生成 matchNo）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+
+  /api/v1/profiles/active:
+    get:
+      tags: [profile]
+      summary: 当前生效档案
+      operationId: getActiveProfile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [profile]
+      summary: 切换生效档案（不影响既有解锁与会话，D1）
+      operationId: switchActiveProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 切换成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+
+  /api/v1/profiles/{profileId}:
+    parameters:
+      - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+    get:
+      tags: [profile]
+      summary: 档案详情（本人/预览，所见即所得）
+      operationId: getMyProfile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [profile]
+      summary: 编辑档案（修改后 auditStatus 重置为 PENDING 重审）
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpsert" }
+      responses:
+        "200":
+          description: 更新成功（已进重审队列）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+
+  /api/v1/profiles/{profileId}/publish:
+    parameters:
+      - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+    post:
+      tags: [profile]
+      summary: 发布档案。服务端强制校验：单身承诺书已签（红线 I4）+ 实名通过 + 子女授权（关系≠本人时）。承诺书未签 → 403 COMMITMENT_REQUIRED（用例 5）
+      operationId: publishProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [commitmentChecked, commitmentVersion]
+              properties:
+                commitmentChecked: { type: boolean, description: 本次勾选 }
+                commitmentVersion: { type: string, description: 声明版本号（留痕） }
+      responses:
+        "200":
+          description: 发布成功（进审核）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+        "403":
+          description: 校验未通过（承诺书/实名/授权缺项，message 指明缺哪项）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/profiles/{profileId}/marital-proof:
+    parameters:
+      - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+    post:
+      tags: [profile]
+      summary: 上传婚姻证明（可选，D5；objectKey 走私有桶，仅审核端可见）
+      operationId: uploadMaritalProof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                objectKeys:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 已提交选审
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileFull" }
+
+  /api/v1/media/upload-token:
+    post:
+      tags: [profile]
+      summary: 申请私有桶直传凭证（照片/证明）
+      operationId: getUploadToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bucket: { type: string, enum: [photos, marital_proof, id_card] }
+                mime: { type: string }
+      responses:
+        "200":
+          description: 返回 objectKey 与上传凭证
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  objectKey: { type: string }
+                  uploadUrl: { type: string }
+                  expiresAt: { type: string, format: date-time }
+
+  # ==================== cert ====================
+  /api/v1/cert/idcard-ocr:
+    post:
+      tags: [cert]
+      summary: 身份证 OCR（实名主体=家长或子女均可，D5；原文不落库仅存哈希+掩码）
+      operationId: idCardOcr
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [objectKey]
+              properties:
+                objectKey: { type: string }
+      responses:
+        "200":
+          description: OCR 结果（脱敏）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  idCardNoMasked: { type: string }
+                  certId: { type: string, format: int64 }
+
+  /api/v1/cert/face-init:
+    post:
+      tags: [cert]
+      summary: 发起人脸核身
+      operationId: faceInit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                certId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 返回核身会话与跳转参数
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId: { type: string }
+                  verifyUrl: { type: string }
+
+  /api/v1/cert/face-verify:
+    post:
+      tags: [cert]
+      summary: 查询核身结果；通过则触发额度解冻（事件驱动，§3.1 H 节点）
+      operationId: faceVerify
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId]
+              properties:
+                sessionId: { type: string }
+      responses:
+        "200":
+          description: 核身结论 + 解冻后的额度余额
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  passed: { type: boolean }
+                  quotaBalance: { $ref: "#/components/schemas/QuotaBalance" }
+
+  /api/v1/consent/send-sms:
+    post:
+      tags: [cert]
+      summary: 子女授权短信（关系≠本人强制，§5.2）
+      operationId: sendConsentSms
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId, childPhone]
+              properties:
+                profileId: { type: string, format: int64 }
+                childPhone: { type: string }
+      responses:
+        "200":
+          description: 已发送
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ttlSeconds: { type: integer }
+
+  /api/v1/consent/verify:
+    post:
+      tags: [cert]
+      summary: 子女验证码校验 + 授权声明勾选留痕（consent_record，PIPL）
+      operationId: verifyConsent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId, code, statementAccepted, statementVersion]
+              properties:
+                profileId: { type: string, format: int64 }
+                code: { type: string }
+                statementAccepted: { type: boolean }
+                statementVersion: { type: string }
+      responses:
+        "200":
+          description: 授权留痕成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consentId: { type: string, format: int64 }
+                  verifiedAt: { type: string, format: date-time }
+
+  # ==================== quota ====================
+  /api/v1/quota/balance:
+    get:
+      tags: [quota]
+      summary: 额度余额（FEFO 多笔明细 + 汇总，D11/D12）
+      operationId: getQuotaBalance
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuotaBalance" }
+
+  # ==================== unlock ====================
+  /api/v1/unlock/check:
+    post:
+      tags: [unlock]
+      summary: 解锁前校验（只读，不扣费；返回当前状态与应付方式）
+      operationId: checkUnlock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 校验结果
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnlockCheck" }
+
+  /api/v1/unlock:
+    post:
+      tags: [unlock]
+      summary: |
+        执行解锁（PRD §6.1 三步校验顺序）：
+        1. 已有 active 关系 → 直接放行不扣费（用例 6）；
+        2. 会员有 active 额度 → FEFO 扣 1（行锁事务，红线 I2）；
+        3. 否则 → 返回单次付费订单（¥19.9 走配置）或券抵扣。
+        目标档案未核验婚姻 → 必须 riskConfirmed=true，否则 412 RISK_CONFIRM_REQUIRED（用例 13）。
+        幂等：idempotencyKey 必填。
+      operationId: unlock
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+          description: 客户端生成的幂等键
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: int64 }
+                riskConfirmed: { type: boolean, default: false }
+                userCouponId: { type: string, format: int64, description: 可选券抵扣 }
+      responses:
+        "200":
+          description: 解锁成功（双向生效 30 天，D3）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnlockResult" }
+        "202":
+          description: 需支付：返回预下单参数，小程序调起微信支付
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string, enum: [need_payment] }
+                  order: { $ref: "#/components/schemas/PrepayOrder" }
+        "402":
+          description: 未实名 → 额度 frozen（用例 11，message 为引导话术）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "412":
+          description: 未核验档案需二次风险确认
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/unlock/records:
+    get:
+      tags: [unlock]
+      summary: 我的解锁记录（P1 记录页复用）
+      operationId: listUnlockRecords
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/UnlockRecord" }
+
+  # ==================== feed ====================
+  /api/v1/feed:
+    get:
+      tags: [feed]
+      summary: 今日推荐流（规则 50%+随机 50%、轮换 30%“仅今日”，D4/§6.2；首屏 <500ms）
+      operationId: getFeed
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileCard" }
+
+  /api/v1/feed/history:
+    get:
+      tags: [feed]
+      summary: 历史推荐（被轮换档案找回，可继续解锁，用例 8）
+      operationId: getFeedHistory
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileCard" }
+
+  /api/v1/feed/public/{matchNo}:
+    get:
+      tags: [feed]
+      summary: |
+        对方档案详情（§5.4）。照片按解锁状态返回（未解锁仅打码签名 URL，红线 I3）；
+        未核验婚姻档案含置顶警示文案；访问即记 view_record。
+      operationId: getPublicProfile
+      parameters:
+        - { name: matchNo, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfilePublicDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/favorites:
+    post:
+      tags: [feed]
+      summary: 收藏/取消收藏（切换）
+      operationId: toggleFavorite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 当前收藏态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  favorited: { type: boolean }
+
+  /api/v1/greet:
+    post:
+      tags: [feed]
+      summary: 打招呼（免费破冰，发送系统卡片；会话收件 P1）
+      operationId: greet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 已送达（不建立聊天权限）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean }
+                  greetCountToday: { type: integer }
+
+  # ==================== conversation & contact ====================
+  /api/v1/conversations:
+    get:
+      tags: [conversation]
+      summary: 亲家会话列表（编号+子女摘要+最后消息+时间）
+      operationId: listConversations
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Conversation" }
+
+  /api/v1/im/user-sig:
+    get:
+      tags: [conversation]
+      summary: 腾讯云IM UserSig 签发（发消息权限由服务端回调按 unlock 状态校验，前端隐藏不算数）
+      operationId: getUserSig
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sdkAppId: { type: string }
+                  userSig: { type: string }
+
+  /api/v1/im/callback:
+    post:
+      tags: [conversation]
+      summary: IM 云端回调（BeforeSendMsg 鉴权 + 鉴黄/敏感词 + 解锁前明文联系方式拦截）
+      security: []
+      operationId: imCallback
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: "IM 约定响应：{ActionStatus, ErrorCode, ErrorInfo}"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ActionStatus: { type: string, enum: [OK, FAIL] }
+                  ErrorCode: { type: integer }
+                  ErrorInfo: { type: string }
+
+  /api/v1/contact/{profileId}/exchange-wechat:
+    post:
+      tags: [contact]
+      summary: 交换微信（需 active 解锁；有效期内不限次；行为留痕 D7）
+      operationId: exchangeWechat
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: 已发送联系方式卡片
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactActionResult" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/contact/{profileId}/call-phone:
+    post:
+      tags: [contact]
+      summary: 拨打电话（解锁有效期内可见号码；留痕）
+      operationId: callPhone
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: 返回对方号码（一次性服务端解密）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactActionResult" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/contact/{profileId}/send-photo:
+    post:
+      tags: [contact]
+      summary: 发送照片（解锁后主动发清晰原图卡片；留痕）
+      operationId: sendPhoto
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                photoIndex: { type: integer }
+      responses:
+        "200":
+          description: 已发送
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactActionResult" }
+
+  # ==================== member & order ====================
+  /api/v1/member/plans:
+    get:
+      tags: [member]
+      summary: 在售会员套餐（读 paid_member_plan 配置）
+      security: []
+      operationId: listMemberPlans
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MemberPlan" }
+
+  /api/v1/member/me:
+    get:
+      tags: [member]
+      summary: 我的会员卡（等级/有效期/剩余解锁 X/30 或 X/10）
+      operationId: getMyMember
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberCard" }
+
+  /api/v1/orders:
+    post:
+      tags: [member]
+      summary: 创建订单（会员购买或单次解锁支付）→ 微信 JSAPI 预下单
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [MEMBER, UNLOCK_ONCE] }
+                planId: { type: string, description: type=MEMBER 必填 }
+                targetProfileId: { type: string, format: int64, description: type=UNLOCK_ONCE 必填 }
+                userCouponId: { type: string, format: int64 }
+      responses:
+        "201":
+          description: 预下单完成（≥¥500 先走短信二次确认，响应 confirmRequired=true）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrepayOrder" }
+
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [member]
+      summary: 订单状态轮询
+      operationId: getOrder
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+
+  /api/v1/orders/callback/wxpay:
+    post:
+      tags: [member]
+      summary: 微信支付结果通知（transactionId 幂等；成功→写 unlock_record/发额度→开 IM 会话）
+      security: []
+      operationId: wxpayCallback
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: "微信约定回调响应：{\"code\": \"SUCCESS\"}"
+          content:
+            application/json:
+              schema: { type: object }
+
+  # ==================== coupon & invite & ops ====================
+  /api/v1/coupons/mine:
+    get:
+      tags: [coupon]
+      summary: 我的优惠券（面额+过期倒计时）
+      operationId: listMyCoupons
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [UNUSED, USED, EXPIRED] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserCoupon" }
+
+  /api/v1/invite/info:
+    get:
+      tags: [invite]
+      summary: 邀请码/奖励规则（读 invite_reward 配置）/邀请记录
+      operationId: getInviteInfo
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inviteCode: { type: string }
+                  rewardRule: { type: object, description: 展示用规则文案+数值（配置下发） }
+                  records:
+                    type: array
+                    items: { $ref: "#/components/schemas/Referral" }
+
+  /api/v1/invite/poster:
+    post:
+      tags: [invite]
+      summary: 生成带参邀请海报
+      operationId: genInvitePoster
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posterUrl: { type: string }
+
+  /api/v1/ops/slots:
+    get:
+      tags: [ops]
+      summary: 运营位（banner/popup/tab_center，含倒计时营销条数据）
+      security: []
+      operationId: listOpsSlots
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [BANNER, POPUP, TAB_CENTER] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OpsSlot" }
+
+  # ==================== misc（消息中心/记录/搜索/工单/管家/设置） ====================
+  /api/v1/notifications:
+    get:
+      tags: [misc]
+      summary: 系统消息（审核/到期/奖励到账）
+      operationId: listNotifications
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/SystemNotification" }
+
+  /api/v1/walls/{wallType}:
+    get:
+      tags: [misc]
+      summary: 三大付费墙：viewed-me / favorited-me / unlocked-me（非会员列表模糊，会员可见，P1）
+      operationId: getWall
+      parameters:
+        - name: wallType
+          in: path
+          required: true
+          schema: { type: string, enum: [viewed-me, favorited-me, unlocked-me] }
+      responses:
+        "200":
+          description: OK（含 isMemberBlurred 标记）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isMemberVisible: { type: boolean }
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileCard" }
+
+  /api/v1/records/{recordType}:
+    get:
+      tags: [misc]
+      summary: 浏览/收藏/解锁记录（P1）
+      operationId: listRecords
+      parameters:
+        - name: recordType
+          in: path
+          required: true
+          schema: { type: string, enum: [view, favorite, unlock] }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileCard" }
+
+  /api/v1/search:
+    get:
+      tags: [misc]
+      summary: 精准搜索（城市/年龄/身高/学历/收入，P1）
+      operationId: searchProfiles
+      parameters:
+        - { name: city, in: query, schema: { type: string } }
+        - { name: ageMin, in: query, schema: { type: integer } }
+        - { name: ageMax, in: query, schema: { type: integer } }
+        - { name: heightMin, in: query, schema: { type: integer } }
+        - { name: heightMax, in: query, schema: { type: integer } }
+        - { name: education, in: query, schema: { type: string } }
+        - { name: incomeRange, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileCard" }
+
+  /api/v1/tickets:
+    post:
+      tags: [misc]
+      summary: 反馈/投诉工单（含退款申请，SLA 48h 首响）
+      operationId: createTicket
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, content]
+              properties:
+                type: { type: string, enum: [FEEDBACK, COMPLAINT, REPORT, REFUND] }
+                content: { type: string }
+                images: { type: array, items: { type: string } }
+                orderId: { type: string, format: int64, description: 退款类关联订单 }
+      responses:
+        "201":
+          description: 已受理
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+    get:
+      tags: [misc]
+      summary: 我的工单与进度
+      operationId: listMyTickets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Ticket" }
+
+  /api/v1/manager-leads:
+    post:
+      tags: [misc]
+      summary: 加速脱单留资（城市/期望/预算）→ 后台派单（D6）
+      operationId: createManagerLead
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [city, expectation]
+              properties:
+                city: { type: string }
+                expectation: { type: string }
+                budgetCent: { type: integer }
+      responses:
+        "201":
+          description: 已受理，管家将发起 1v1 会话
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leadId: { type: string, format: int64 }
+
+  /api/v1/settings/notify:
+    get:
+      tags: [misc]
+      summary: 通知开关与订阅消息授权状态
+      operationId: getNotifySettings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotifyPref" }
+    put:
+      tags: [misc]
+      summary: 更新通知开关
+      operationId: updateNotifySettings
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyPref" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotifyPref" }
+
+  /api/v1/settings/privacy:
+    put:
+      tags: [misc]
+      summary: 隐私设置：仅同城可见 / 子女协助管理（≥阈值支付通知子女）
+      operationId: updatePrivacySettings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cityOnlyVisible: { type: boolean }
+                bigPayNotifyChild: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+
+  /api/v1/settings/account-close:
+    post:
+      tags: [misc]
+      summary: 注销账号（PIPL：二次确认+冷静期；个人信息删除/匿名化，红线 I5）
+      operationId: closeAccount
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmed]
+              properties:
+                confirmed: { type: boolean }
+                smsCode: { type: string }
+      responses:
+        "200":
+          description: 注销受理（返回冷静期截止日；到期自动匿名化）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  effectiveAt: { type: string, format: date-time }
+
+  /api/v1/blacklist:
+    get:
+      tags: [misc]
+      summary: 拉黑列表
+      operationId: listBlacklist
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [misc]
+      summary: 拉黑（推荐硬过滤互斥，§6.2）
+      operationId: addBlacklist
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockedUserId]
+              properties:
+                blockedUserId: { type: string, format: int64 }
+      responses:
+        "201": { description: 已拉黑 }
+
+  # ==================== admin ====================
+  /admin/v1/auth/login:
+    post:
+      tags: [admin]
+      summary: 管理员登录
+      security: []
+      operationId: adminLogin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  role: { type: string, enum: [SUPER, REVIEWER, OPERATOR, FINANCE] }
+
+  /admin/v1/audit/profiles:
+    get:
+      tags: [admin]
+      summary: 待审档案队列（含婚姻证明选审、实名复核标记）
+      operationId: adminListPendingProfiles
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, APPROVED, REJECTED] } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileFull" }
+
+  /admin/v1/audit/profiles/{profileId}:
+    post:
+      tags: [admin]
+      summary: 档案审核裁决（拒绝→违规下架触发相关 unlock Refunded，§6.1）
+      operationId: adminAuditProfile
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                reason: { type: string }
+                maritalVerified: { type: boolean, description: 婚姻证明选审结论（D5） }
+      responses:
+        "200": { description: 已裁决（写 AdminAuditLog） }
+
+  /admin/v1/users:
+    get:
+      tags: [admin]
+      summary: 用户查询（会员态/三唯一标识/风控标记）
+      operationId: adminListUsers
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/quotas:
+    get:
+      tags: [admin]
+      summary: 额度账本查询（只读，含 QuotaTxLog 流水）
+      operationId: adminListQuotas
+      parameters:
+        - { name: userId, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/orders:
+    get:
+      tags: [admin]
+      summary: 订单查询与退款工单（SLA 48h）
+      operationId: adminListOrders
+      parameters:
+        - { name: payStatus, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/orders/{orderId}/refund:
+    post:
+      tags: [admin]
+      summary: |
+        退款裁决（§6.5 公式服务端实现：会员 7 天 0 消耗全退；已消耗=实付−消耗次数×挂牌价−已发券面额，下限 0；
+        末 30 天不退；单次解锁 24h 违规全退+返额度、已交换微信/已拨电话不退、过期不退）。返回试算明细。
+      operationId: adminRefundOrder
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved]
+              properties:
+                approved: { type: boolean }
+                reason: { type: string }
+      responses:
+        "200":
+          description: 退款执行（原路退回 3-7 工作日）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refundAmountCent: { type: integer }
+                  calcDetail: { type: object, description: 公式逐项（用例 7） }
+                  quotaReturned: { type: boolean }
+
+  /admin/v1/config/{key}:
+    get:
+      tags: [admin]
+      summary: 读配置项
+      operationId: adminGetConfig
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configKey: { type: string }
+                  value: { type: object }
+    put:
+      tags: [admin]
+      summary: 更新配置项（保存即失效缓存 + 写 AdminAuditLog；红线 I1 唯一写入口）
+      operationId: adminUpdateConfig
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: object }
+      responses:
+        "200": { description: 已生效 }
+
+  /admin/v1/ops-slots:
+    get:
+      tags: [admin]
+      summary: 运营位管理
+      operationId: adminListOpsSlots
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [admin]
+      summary: 新建/更新运营位
+      operationId: adminUpsertOpsSlot
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpsSlot" }
+      responses:
+        "200": { description: 已保存 }
+
+  /admin/v1/tickets:
+    get:
+      tags: [admin]
+      summary: 工单列表（举报投诉/退款/反馈，按 SLA 倒计时排序）
+      operationId: adminListTickets
+      responses:
+        "200": { description: OK }
+    put:
+      tags: [admin]
+      summary: 工单处理（状态流转+回复）
+      operationId: adminUpdateTicket
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [OPEN, PROCESSING, CLOSED] }
+                handlerNote: { type: string }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/im/risk-events:
+    get:
+      tags: [admin]
+      summary: IM 风控台（拦截记录：明文联系方式/敏感词/鉴黄）
+      operationId: adminListRiskEvents
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/dashboard/funnel:
+    get:
+      tags: [admin]
+      summary: 数据看板（注册/实名/解锁/付费/退款/裂变漏斗，§5.13）
+      operationId: adminDashboardFunnel
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  register: { type: integer }
+                  realnamePassed: { type: integer }
+                  unlocks: { type: integer }
+                  paidOrders: { type: integer }
+                  paidAmountCent: { type: integer }
+                  refunds: { type: integer }
+                  invitedRewarded: { type: integer }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  parameters:
+    page: { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
+    size: { name: size, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+
+  responses:
+    Unauthorized:
+      description: 未登录/Token 过期
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: 无权限（如未解锁）
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: integer, description: HTTP 状态码 }
+        message: { type: string, description: 可直接展示的中文文案（中老年口语化） }
+        errorCode: { type: string, description: 机器码，如 COMMITMENT_REQUIRED / RISK_CONFIRM_REQUIRED / REALNAME_REQUIRED }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        nickname: { type: string }
+        phoneMasked: { type: string, description: 138****1234 }
+        relation: { type: string, enum: [FATHER, MOTHER, SELF] }
+        memberLevel: { type: string, enum: [NONE, TRIAL, PAID, INTENTION] }
+        memberExpireAt: { type: string, format: date-time, nullable: true }
+        realnamePassed: { type: boolean }
+        inviteCode: { type: string }
+
+    ProfileUpsert:
+      type: object
+      required: [relation, gender, birthYear, heightCm, education, occupation, residenceCity]
+      properties:
+        relation: { type: string, enum: [FATHER, MOTHER, SELF] }
+        gender: { type: string, enum: [MALE, FEMALE] }
+        birthYear: { type: integer, minimum: 1900, maximum: 2020 }
+        heightCm: { type: integer, minimum: 100, maximum: 250 }
+        education: { type: string, enum: [JUNIOR_HIGH, HIGH_SCHOOL, VOCATIONAL, COLLEGE, BACHELOR, MASTER, DOCTOR] }
+        occupation: { type: string, maxLength: 40 }
+        incomeRange: { type: string, enum: [BELOW_5K, R5K_10K, R10K_20K, R20K_50K, ABOVE_50K, UNDISCLOSED] }
+        residenceCity: { type: string }
+        residenceDistrict: { type: string }
+        hometown: { type: string }
+        hukou: { type: string }
+        housing: { type: string, enum: [OWNED_FULL, OWNED_MORTGAGE, NONE, UNDISCLOSED] }
+        car: { type: string, enum: [OWNED, NONE, UNDISCLOSED] }
+        intro: { type: string, maxLength: 500, description: 家长评语 }
+        photoObjectKeys: { type: array, items: { type: string }, maxItems: 9 }
+        maritalStatus: { type: string, enum: [UNMARRIED, DIVORCED, WIDOWED, UNDISCLOSED] }
+
+    ProfileFull:
+      description: 本人视角完整档案
+      allOf:
+        - $ref: "#/components/schemas/ProfileUpsert"
+        - type: object
+          properties:
+            id: { type: string, format: int64 }
+            matchNo: { type: string }
+            isActive: { type: boolean }
+            auditStatus: { type: string, enum: [DRAFT, PENDING, APPROVED, REJECTED] }
+            rejectReason: { type: string, nullable: true }
+            isMaritalVerified: { type: boolean }
+            singleCommitmentSignedAt: { type: string, format: date-time, nullable: true }
+            publishedAt: { type: string, format: date-time, nullable: true }
+            consentStatus: { type: string, enum: [NOT_REQUIRED, PENDING, DONE], description: 关系≠本人时的子女授权态 }
+
+    ProfileCard:
+      type: object
+      description: 推荐流卡片（§5.3 字段集；照片打码；分页 <500ms）
+      properties:
+        profileId: { type: string, format: int64 }
+        matchNo: { type: string }
+        gender: { type: string, enum: [MALE, FEMALE] }
+        birthYear: { type: integer }
+        memberBadge: { type: boolean }
+        maritalVerifiedBadge: { type: string, enum: [VERIFIED, UNVERIFIED], description: 绿标/灰标（§6.3） }
+        residenceCity: { type: string }
+        heightCm: { type: integer }
+        education: { type: string }
+        occupation: { type: string }
+        incomeRange: { type: string }
+        housing: { type: string }
+        car: { type: string }
+        introDigest: { type: string, description: 家长评语摘要 }
+        blurredAvatarUrl: { type: string, description: 打码头像（限时签名） }
+        isTodayOnly: { type: boolean, description: 30% 轮换卡“仅今日”（D4） }
+        todayOnlyTip: { type: string, nullable: true, description: 仅轮换卡下发的话术（copywriting 配置） }
+        unlockState: { type: string, enum: [locked, active, expired], description: 当前生效档案对该卡片的关系态 }
+
+    ProfilePublicDetail:
+      allOf:
+        - $ref: "#/components/schemas/ProfileCard"
+        - type: object
+          properties:
+            agentNickname: { type: string, description: 如“熊家长(母亲)”（§1.2） }
+            relation: { type: string, enum: [FATHER, MOTHER, SELF] }
+            realnameSeal: { type: boolean, description: “已完成实名”印章 }
+            residenceDistrict: { type: string }
+            hometown: { type: string }
+            hukou: { type: string }
+            intro: { type: string }
+            photos:
+              type: array
+              description: 未解锁=全部打码签名 URL；解锁后清晰（服务端裁决，红线 I3）
+              items:
+                type: object
+                properties:
+                  url: { type: string }
+                  blurred: { type: boolean }
+            unverifiedWarnTop: { type: string, nullable: true, description: 未核验档案置顶警示（copywriting 配置下发） }
+            contactVisible: { type: boolean, description: 解锁且未过期才可见 }
+            favorited: { type: boolean }
+
+    QuotaBalance:
+      type: object
+      description: 多笔额度 FEFO 视图（D11/D12）
+      properties:
+        totalRemaining: { type: integer }
+        frozenTotal: { type: integer, description: 未实名冻结量（用例 11） }
+        limitLabel: { type: string, description: 展示用，如 “8/10”“23/30” }
+        batches:
+          type: array
+          description: 按 expireAt 升序（FEFO 扣减顺序）
+          items:
+            type: object
+            properties:
+              quotaId: { type: string, format: int64 }
+              source: { type: string, enum: [NEWBIE, INVITE, PAID] }
+              remaining: { type: integer }
+              status: { type: string, enum: [FROZEN, ACTIVE, EXPIRED] }
+              expireAt: { type: string, format: date-time }
+
+    UnlockCheck:
+      type: object
+      properties:
+        state: { type: string, enum: [already_unlocked, quota_available, need_payment, realname_required] }
+        targetMaritalVerified: { type: boolean }
+        riskConfirmRequired: { type: boolean, description: 未核验→需二次确认（用例 13） }
+        oncePriceCent: { type: integer, description: 配置下发（unlock_once_price） }
+        expireAt: { type: string, format: date-time, nullable: true }
+
+    UnlockResult:
+      type: object
+      properties:
+        unlockId: { type: string, format: int64 }
+        payType: { type: string, enum: [QUOTA, ONCE, COUPON] }
+        quotaRemainAfter: { type: integer }
+        expireAt: { type: string, format: date-time, description: 恒 created+30d（D12） }
+        conversation: { $ref: "#/components/schemas/Conversation" }
+        contact:
+          type: object
+          description: 双向可见（用例 2：被动方免操作可见，不扣额度）
+          properties:
+            wechat: { type: string }
+            phone: { type: string, description: 服务端解密一次性下发 }
+
+    UnlockRecord:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        direction: { type: string, enum: [initiated_by_me, granted_to_me] }
+        targetProfile: { type: string, description: matchNo + 摘要 }
+        payType: { type: string, enum: [QUOTA, ONCE, COUPON, FREE_GRANT] }
+        status: { type: string, enum: [ACTIVE, EXPIRED, REFUNDED] }
+        createdAt: { type: string, format: date-time }
+        expireAt: { type: string, format: date-time }
+
+    Conversation:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        imConvId: { type: string }
+        counterpart:
+          type: object
+          description: 会话头：对方代理人身份+徽章+编号+子女摘要（§5.6）
+          properties:
+            nickname: { type: string }
+            relation: { type: string }
+            memberBadge: { type: boolean }
+            matchNo: { type: string }
+            childDigest: { type: string, description: 如“女·95年·杭州·170cm·研究生·设计师” }
+        lastMsgAt: { type: string, format: date-time, nullable: true }
+        lastMsgDigest: { type: string, nullable: true }
+        unlockExpireAt: { type: string, format: date-time, description: 过期禁发（D3） }
+        canSend: { type: boolean }
+
+    ContactActionResult:
+      type: object
+      description: 接触升级结果；行为已留痕（ContactActionLog，退款判定 D7）
+      properties:
+        action: { type: string, enum: [EXCHANGE_WECHAT, CALL_PHONE, SEND_PHOTO] }
+        loggedAt: { type: string, format: date-time }
+        cardSent: { type: boolean }
+
+    MemberPlan:
+      type: object
+      properties:
+        planId: { type: string }
+        name: { type: string }
+        days: { type: integer }
+        quota: { type: integer }
+        amountCent: { type: integer }
+        originalAmountCent: { type: integer, nullable: true }
+
+    MemberCard:
+      type: object
+      properties:
+        level: { type: string, enum: [NONE, TRIAL, PAID, INTENTION] }
+        expireAt: { type: string, format: date-time, nullable: true }
+        quota: { $ref: "#/components/schemas/QuotaBalance" }
+        privileges:
+          type: array
+          description: 权益项（后台可配，§5.9）
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              label: { type: string }
+              enabled: { type: boolean }
+        renewRemind:
+          type: object
+          description: 到期前 2/7 天提醒节点状态（§5.11）
+          properties:
+            nextRemindAt: { type: string, format: date-time, nullable: true }
+            couponIssued: { type: boolean }
+
+    PrepayOrder:
+      type: object
+      properties:
+        orderId: { type: string, format: int64 }
+        outTradeNo: { type: string }
+        amountCent: { type: integer }
+        couponDeductCent: { type: integer }
+        confirmRequired: { type: boolean, description: ≥大额阈值需短信二次确认（§5.10） }
+        paySignParams: { type: object, description: wx.requestPayment 参数 }
+
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        type: { type: string, enum: [MEMBER, UNLOCK_ONCE] }
+        amountCent: { type: integer }
+        payStatus: { type: string, enum: [CREATED, PAID, CLOSED] }
+        refundStatus: { type: string, enum: [NONE, REQUESTED, REFUNDING, REFUNDED, REJECTED] }
+        paidAt: { type: string, format: date-time, nullable: true }
+
+    UserCoupon:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        name: { type: string }
+        scope: { type: string, enum: [UNLOCK, MEMBER] }
+        amountCent: { type: integer }
+        minAmountCent: { type: integer }
+        status: { type: string, enum: [UNUSED, USED, EXPIRED] }
+        expireAt: { type: string, format: date-time }
+
+    Referral:
+      type: object
+      properties:
+        inviteeMasked: { type: string, description: 脱敏昵称/手机 }
+        rewardStatus: { type: string, enum: [PENDING, REWARDED, REJECTED], description: 被邀请人实名通过后 REWARDED（D10，用例 12） }
+        rewardedAt: { type: string, format: date-time, nullable: true }
+
+    OpsSlot:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        type: { type: string, enum: [BANNER, POPUP, TAB_CENTER] }
+        content: { type: object, description: 文案/图片/跳转配置 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        sort: { type: integer }
+        enabled: { type: boolean }
+
+    SystemNotification:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        category: { type: string, enum: [audit, expire, activity, reward, risk] }
+        title: { type: string }
+        body: { type: string }
+        readFlag: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: string, format: int64 }
+        type: { type: string, enum: [FEEDBACK, COMPLAINT, REPORT, REFUND] }
+        content: { type: string }
+        status: { type: string, enum: [OPEN, PROCESSING, CLOSED] }
+        slaDeadline: { type: string, format: date-time }
+        handlerNote: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    NotifyPref:
+      type: object
+      properties:
+        switches:
+          type: object
+          properties:
+            review: { type: boolean }
+            expireRemind: { type: boolean }
+            activity: { type: boolean }
+            rewardArrived: { type: boolean }
+        subscribeAuthStatus: { type: string, enum: [UNKNOWN, GRANTED, DENIED] }
