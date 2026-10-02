@@ -148,6 +148,24 @@ export class ProfileService {
     return this.storage.createUploadToken(bucket, mime ?? 'image/jpeg');
   }
 
+  /**
+   * 解锁/订单模块只读入口（模块间禁跨表直查）：目标档案 + 代理人摘要。
+   * phone 仅在服务端判定"已解锁"后由 UnlockService 下发（红线 I3）。
+   */
+  async getUnlockTarget(profileId: bigint) {
+    const p = await this.prisma.profile.findUnique({
+      where: { id: profileId },
+      include: { owner: { select: { id: true, nickname: true, phone: true, memberLevel: true, memberExpireAt: true } } },
+    });
+    if (!p) throw new NotFoundException('档案不存在');
+    return p;
+  }
+
+  /** 生效档案原始行（开会话需要 profileId；无则 null） */
+  async getActiveProfileRaw(userId: bigint): Promise<Profile | null> {
+    return this.prisma.profile.findFirst({ where: { ownerUserId: userId, isActive: true } });
+  }
+
   // ==================== 私有 ====================
 
   private toProfileData(dto: UpsertProfileDto) {

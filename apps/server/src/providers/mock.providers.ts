@@ -45,13 +45,27 @@ export class MockWxPay implements WxPay {
     };
   }
 
-  async parsePayCallback(_headers: Record<string, string>, _body: string): Promise<{
+  async parsePayCallback(_headers: Record<string, string>, body: string): Promise<{
     outTradeNo: string;
     transactionId: string;
     success: boolean;
     amountCent: number;
   }> {
-    throw new Error('MockWxPay.parsePayCallback: 请在测试中直接调用 OrderService.handlePaidCallback(outTradeNo, transactionId)');
+    // mock 环境无真实微信报文：接受明文 {outTradeNo, transactionId, success?, amountCent?} 便于 e2e 走接口路径
+    try {
+      const j = JSON.parse(body) as Record<string, unknown>;
+      if (typeof j.outTradeNo === 'string' && typeof j.transactionId === 'string') {
+        return {
+          outTradeNo: j.outTradeNo,
+          transactionId: j.transactionId,
+          success: j.success !== false,
+          amountCent: Number(j.amountCent ?? 0),
+        };
+      }
+    } catch {
+      /* fallthrough */
+    }
+    throw new Error('MockWxPay.parsePayCallback：mock 报文需为 {outTradeNo, transactionId}');
   }
 
   async refund(params: { outTradeNo: string; outRefundNo: string }) {
@@ -125,14 +139,33 @@ export class MockConfigCenter implements ConfigCenter {
   /** Step 2 前用静态默认值兜底（注意：这些默认值只允许存在于 mock/seed，业务代码禁止硬编码） */
   private readonly defaults: Record<string, unknown> = {
     unlock_once_price: { amountCent: 1990 },
-    paid_member_plan: { options: [{ planId: 'month', days: 30, quota: 30, amountCent: 9900 }] },
+    paid_member_plan: {
+      options: [
+        { planId: 'month', name: '月度会员', days: 30, quota: 30, amountCent: 9900 },
+        { planId: 'quarter', name: '季度会员', days: 90, quota: 30, amountCent: 23900 },
+        { planId: 'year', name: '年度会员', days: 365, quota: 30, amountCent: 79900 },
+      ],
+    },
+    unlock_validity: { days: 30 },
     newbie_reward: { days: 7, quota: 10 },
     invite_reward: { days: 7, quota: 10 },
     age_window: { minAge: 18, maxAge: 60, diffYears: 10 },
     random_ratio: { percent: 50 },
     rotation_ratio: { percent: 30 },
     feed_weights: { sameCity: 30, sameDistrict: 10, eduMatch: 10, incomeOverlap: 10, active7d: 15, fresh48h: 20, maritalVerified: 30, maritalUnverified: -20 },
-    copywriting: { rotationCardTip: '明天起将无法查看对方资料', unlockedContactTip: '对方联系方式' },
+    copywriting: {
+      rotationCardTipEnabled: true,
+      rotationCardTip: '明天起将无法查看对方资料',
+      unlockedContactTip: '对方联系方式',
+      unverifiedWarnTop: '该用户未提供婚姻证明，请注意甄别',
+      unverifiedUnlockConfirm: '对方未提供婚姻证明，存在一定风险，是否确认解锁？',
+      unlockBtnRealnameGuide: '完成实名激活 10 次免费解锁',
+      privileges: [
+        { key: 'unlock', label: '解锁联系方式' },
+        { key: 'im', label: '双向畅聊' },
+        { key: 'records', label: '解锁记录' },
+      ],
+    },
     remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
     big_pay_threshold: { amountCent: 50000 },
     coupon_templates: [],

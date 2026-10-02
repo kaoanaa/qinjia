@@ -4,7 +4,7 @@
   "testEnvironment": "node",
   "testRegex": "test/.*\\.e2e-spec\\.ts$",
   "transform": { "^.+\\.ts$": "ts-jest" },
-  "moduleNameMapper": { "^@qinjia/shared$": "<rootDir>/../packages/shared/src/index.ts" },
+  "moduleNameMapper": { "^@qinjia/shared$": "<rootDir>/../../packages/shared/src/index.ts" },
   "collectCoverageFrom": ["src/**/*.ts"],
   "coverageDirectory": "<rootDir>/coverage",
   "testTimeout": 30000

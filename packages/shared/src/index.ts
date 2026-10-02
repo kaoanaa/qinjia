@@ -121,6 +121,7 @@ export enum OpsSlotType {
 /** reward_config key 清单（PRD §11，禁止硬编码 —— 取值一律走配置中心） */
 export const ConfigKeys = {
   UNLOCK_ONCE_PRICE: 'unlock_once_price', // 单次解锁价（默认分单位，勿在代码写 19.9）
+  UNLOCK_VALIDITY: 'unlock_validity', // 解锁有效期（D3 规格默认 30 天，seed §11-14）
   PAID_MEMBER_PLAN: 'paid_member_plan', // 付费套餐与额度
   NEWBIE_REWARD: 'newbie_reward', // 赠送时长/额度
   INVITE_REWARD: 'invite_reward', // 邀请奖励

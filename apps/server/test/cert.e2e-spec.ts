@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -15,6 +16,9 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
   const server = () => app.getHttpServer();
+
+  /** MockRealname 哈希取 objectKey 末 8 位——用随机段保证跨运行不撞 idCardNoHash 唯一键 */
+  const ocrKey = () => `id_card/ocr_${randomUUID().slice(0, 8)}`;
 
   async function login(code: string): Promise<string> {
     const res = await request(server()).post('/api/v1/auth/login').send({ code }).expect(201);
@@ -51,7 +55,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
     expect(before.body.frozenTotal).toBe(10);
     expect(before.body.totalRemaining).toBe(0); // 未实名不可用 → 前端按钮置灰
 
-    const r = await realnameFlow(token, `id_card/ocr_${suffix}_1.jpg`);
+    const r = await realnameFlow(token, ocrKey());
     expect(r.passed).toBe(true);
     expect(r.quotaBalance.totalRemaining).toBe(10);
     expect(r.quotaBalance.frozenTotal).toBe(0);
@@ -63,7 +67,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
 
   it('face-verify 幂等：重复回调不重复解冻', async () => {
     const token = await login(`R2_${suffix}`);
-    const ocr = await request(server()).post('/api/v1/cert/idcard-ocr').set('Authorization', `Bearer ${token}`).send({ objectKey: `id_card/ocr_${suffix}_2.jpg` }).expect(200);
+    const ocr = await request(server()).post('/api/v1/cert/idcard-ocr').set('Authorization', `Bearer ${token}`).send({ objectKey: ocrKey() }).expect(200);
     const init = await request(server()).post('/api/v1/cert/face-init').set('Authorization', `Bearer ${token}`).send({ certId: ocr.body.certId }).expect(200);
     await request(server()).post('/api/v1/cert/face-verify').set('Authorization', `Bearer ${token}`).send({ sessionId: init.body.sessionId }).expect(200);
     const again = await request(server()).post('/api/v1/cert/face-verify').set('Authorization', `Bearer ${token}`).send({ sessionId: init.body.sessionId }).expect(200);
@@ -74,7 +78,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
 
   it('关系≠本人：无授权 → 403 CONSENT_REQUIRED；短信+验证后放行（§5.2/PIPL）', async () => {
     const token = await login(`R3_${suffix}`);
-    await realnameFlow(token, `id_card/ocr_${suffix}_3.jpg`);
+    await realnameFlow(token, ocrKey());
     const prof = await request(server())
       .post('/api/v1/profiles')
       .set('Authorization', `Bearer ${token}`)
@@ -127,7 +131,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
 
   it('本人档案无需授权：实名后直接可发布', async () => {
     const token = await login(`R4_${suffix}`);
-    await realnameFlow(token, `id_card/ocr_${suffix}_4.jpg`);
+    await realnameFlow(token, ocrKey());
     const prof = await request(server())
       .post('/api/v1/profiles')
       .set('Authorization', `Bearer ${token}`)
@@ -157,7 +161,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
 
   it('用例 15：同身份证二次注册 → 实名通过但新手礼保持 frozen（无福利）', async () => {
     const token1 = await login(`R6_${suffix}`);
-    const sharedKey = `id_card/dup_${suffix}.jpg`; // 同 objectKey → mock 同哈希
+    const sharedKey = ocrKey(); // 同 objectKey → mock 同哈希
     await realnameFlow(token1, sharedKey);
 
     const token2 = await login(`R7_${suffix}`); // 第二个账号，注册即发 frozen 新手礼
@@ -179,7 +183,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
     expect(invited.body.isNewUser).toBe(true);
 
     const spy = jest.spyOn(app.get(ReferralRewardTrigger), 'onInviteeRealnamePassed');
-    await realnameFlow(invited.body.token, `id_card/ocr_${suffix}_10.jpg`);
+    await realnameFlow(invited.body.token, ocrKey());
     expect(spy).toHaveBeenCalledTimes(1);
 
     const invitee = await prisma.user.findUniqueOrThrow({ where: { openid: `mock_openid_R10_${suffix}` } });

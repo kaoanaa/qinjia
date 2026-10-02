@@ -48,6 +48,11 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
     unverifiedWarnTop: '该用户未提供婚姻证明，请注意甄别',
     unverifiedUnlockConfirm: '对方未提供婚姻证明，存在一定风险，是否确认解锁？',
     unlockBtnRealnameGuide: '完成实名激活 10 次免费解锁',
+    privileges: [
+      { key: 'unlock', label: '解锁联系方式' },
+      { key: 'im', label: '双向畅聊' },
+      { key: 'records', label: '解锁记录' },
+    ],
   },
   // §11-10 提醒节点（§3.2/§5.11）
   remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
