@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   ConfigCenter,
   ImProvider,
@@ -107,6 +108,15 @@ export class MockStorage implements StorageProvider {
 
   async signedUrl(objectKey: string, ttlSeconds: number) {
     return `https://mock-cdn.local/${objectKey}?e=${Math.floor(Date.now() / 1000) + ttlSeconds}`;
+  }
+
+  async createUploadToken(bucket: 'photos' | 'marital_proof' | 'id_card', mime: string) {
+    const ext = mime.includes('png') ? 'png' : 'jpg';
+    return {
+      objectKey: `${bucket}/mock_${randomUUID()}.${ext}`,
+      uploadUrl: `https://mock-oss.local/put?bucket=${bucket}`,
+      expiresAt: new Date(Date.now() + 900_000),
+    };
   }
 }
 

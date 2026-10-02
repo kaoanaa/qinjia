@@ -36,9 +36,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    const errorCode =
+      body && typeof body === 'object' ? (body as { errorCode?: string }).errorCode : undefined;
+
     response.status(status).json({
       code: status,
       message: Array.isArray(message) ? message.join('; ') : message,
+      ...(errorCode ? { errorCode } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });

@@ -69,6 +69,8 @@ export interface SmsProvider {
 export interface StorageProvider {
   /** 私有桶上传（照片/证明），返回不可枚举 objectKey */
   putPrivate(bucket: 'photos' | 'marital_proof' | 'id_card', buffer: Buffer, mime: string): Promise<{ objectKey: string }>;
+  /** 申请直传凭证（/media/upload-token）：服务端预分配 objectKey + 限时 PUT URL */
+  createUploadToken(bucket: 'photos' | 'marital_proof' | 'id_card', mime: string): Promise<{ objectKey: string; uploadUrl: string; expiresAt: Date }>;
   /** 生成限时签名 URL（打码图走 CDN 处理参数） */
   signedUrl(objectKey: string, ttlSeconds: number, process?: string): Promise<string>;
 }
