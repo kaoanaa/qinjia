@@ -124,8 +124,9 @@ export class MockStorage implements StorageProvider {
     return { objectKey: key };
   }
 
-  async signedUrl(objectKey: string, ttlSeconds: number) {
-    return `https://mock-cdn.local/${objectKey}?e=${Math.floor(Date.now() / 1000) + ttlSeconds}`;
+  async signedUrl(objectKey: string, ttlSeconds: number, process?: string) {
+    const p = process ? `&p=${encodeURIComponent(process)}` : '';
+    return `https://mock-cdn.local/${objectKey}?e=${Math.floor(Date.now() / 1000) + ttlSeconds}${p}`;
   }
 
   async createUploadToken(bucket: 'photos' | 'marital_proof' | 'id_card', mime: string) {
@@ -196,6 +197,8 @@ export class MockConfigCenter implements ConfigCenter {
       chatExpiredSendTip: '解锁已过期，重新解锁后才能发送消息',
       chatBlockedContactTip: '为防止诈骗，解锁前禁止发送微信号/手机号等联系方式',
       chatSensitiveTip: '内容涉及敏感词，请文明交流',
+      shareCardTitle: '这里有个合适的亲家，介绍给你看看',
+      posterTip: '长按识别，查看孩子完整资料',
     },
     remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
     big_pay_threshold: { amountCent: 50000 },

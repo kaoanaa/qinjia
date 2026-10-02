@@ -568,6 +568,39 @@ paths:
               schema: { $ref: "#/components/schemas/ProfilePublicDetail" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/feed/public/{matchNo}/share:
+    get:
+      tags: [feed]
+      summary: 转发微信卡片 + 海报数据（§5.4；话术读 copywriting，封面走打码签名 URL）
+      operationId: getProfileShare
+      parameters:
+        - { name: matchNo, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  title: { type: string, description: 分享卡片标题（shareCardTitle 配置下发） }
+                  pagePath: { type: string, description: 小程序落地页 path（带 matchNo） }
+                  imageUrl: { type: string, description: 封面图=打码头像签名 URL }
+                  poster:
+                    type: object
+                    description: 前端 canvas 绘制海报所需数据（编号防枚举：仅 matchNo，无 userId）
+                    properties:
+                      matchNo: { type: string }
+                      gender: { type: string }
+                      birthYear: { type: integer }
+                      heightCm: { type: integer }
+                      education: { type: string }
+                      occupation: { type: string }
+                      residenceCity: { type: string }
+                      introDigest: { type: string, nullable: true }
+                      tip: { type: string, description: 海报底部话术（posterTip 配置下发） }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/favorites:
     post:
       tags: [feed]
@@ -1528,6 +1561,8 @@ components:
             unverifiedWarnTop: { type: string, nullable: true, description: 未核验档案置顶警示（copywriting 配置下发） }
             contactVisible: { type: boolean, description: 解锁且未过期才可见 }
             favorited: { type: boolean }
+            prevMatchNo: { type: string, nullable: true, description: 当前推荐序上一个（§5.4 上下滑切换；不在序内为 null） }
+            nextMatchNo: { type: string, nullable: true, description: 当前推荐序下一个 }
 
     QuotaBalance:
       type: object

@@ -81,10 +81,11 @@ describe('推荐流与轮换 (e2e)', () => {
     await clearCandidates(); // 清掉历史 run 数据：推荐流是全局候选池，脏数据会污染 total/排序断言
   });
 
-  /** 停用全部候选（FM 前缀=mkProfile）并清空轮换标记，使候选池=本用例新建 */
+  /** 停用全部候选（FM=本用例 + MD=detail 用例的男候选）并清空轮换标记，使候选池=本用例新建 */
   async function clearCandidates() {
     await prisma.feedRotationCard.deleteMany({});
     await prisma.profile.updateMany({ where: { matchNo: { startsWith: 'FM' } }, data: { isActive: false } });
+    await prisma.profile.updateMany({ where: { matchNo: { startsWith: 'MD' } }, data: { isActive: false } });
   }
 
   afterAll(async () => {

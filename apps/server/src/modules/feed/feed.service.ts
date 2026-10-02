@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AuditStatus, Gender, Prisma } from '@prisma/client';
 import { ConfigKeys } from '@qinjia/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONFIG_CENTER, ConfigCenter, KV_CACHE, KvCache, STORAGE, StorageProvider } from '../../providers/interfaces';
+import { CONFIG_CENTER, ConfigCenter, IM, ImProvider, KV_CACHE, KvCache, STORAGE, StorageProvider } from '../../providers/interfaces';
 import { BusinessException } from '../../common/business.exception';
 import { ProfileService } from '../profile/profile.service';
+import { UnlockService } from '../unlock/unlock.service';
 
 interface FeedWeightsCfg {
   sameCity: number;
@@ -39,6 +40,22 @@ interface CandidateRow {
 
 const FEED_TTL_SECONDS = 300; // 结果按 (activeProfileId, date) 缓存 5min（ARCHITECTURE §feed）
 
+// CDN 打码处理参数：未解锁图片只下发带参签名 URL，原图 objectKey 绝不出现在响应（§5.4 验证项，红线 I3）
+const BLUR_PROCESS = 'imageMogr2/blur/r_30';
+
+interface PhotoItem {
+  objectKey: string;
+  sort: number;
+}
+
+interface DetailCopy {
+  unverifiedWarnTop: string;
+  shareCardTitle: string;
+  posterTip: string;
+  rotationCardTipEnabled?: boolean;
+  rotationCardTip?: string;
+}
+
 /**
  * 推荐流（PRD §6.2，D4）：硬过滤（性别相反/已发布/年龄窗/拉黑互斥/历史轮换移出）
  * → 规则分（权重全读 feed_weights，红线 I1）50% 坑位 + 随机 50% 坑位 → 当日轮换卡打"仅今日"标。
@@ -50,9 +67,11 @@ export class FeedService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly profile: ProfileService,
+    private readonly unlock: UnlockService,
     @Inject(CONFIG_CENTER) private readonly config: ConfigCenter,
     @Inject(KV_CACHE) private readonly cache: KvCache,
     @Inject(STORAGE) private readonly storage: StorageProvider,
+    @Inject(IM) private readonly im: ImProvider,
   ) {}
 
   async list(userId: bigint, page: number, size: number) {
@@ -106,6 +125,115 @@ export class FeedService {
   async pruneRotationMarks(before: Date): Promise<number> {
     const r = await this.prisma.feedRotationCard.deleteMany({ where: { day: { lt: before } } });
     return r.count;
+  }
+
+  /**
+   * 对方档案详情（§5.4/§6.3）。照片两态由服务端裁决：未解锁仅打码签名 URL（红线 I3，
+   * 原图 URL/objectKey 不外泄）；未核验置顶警示读 copywriting；访问即记 view_record；
+   * 上下滑切换取当日推荐序相邻项（不在序内为 null）。
+   */
+  async publicDetail(matchNo: string, viewerUserId: bigint) {
+    const row = await this.prisma.profile.findFirst({
+      where: { matchNo, isActive: true, auditStatus: AuditStatus.APPROVED, publishedAt: { not: null } },
+      include: { owner: { select: { id: true, nickname: true, memberLevel: true, avatarKey: true, updatedAt: true, idCardNoHash: true } } },
+    });
+    if (!row || row.ownerUserId === viewerUserId) throw new NotFoundException('档案不存在或已下线');
+
+    await this.prisma.viewRecord.upsert({
+      where: { fromUserId_toProfileId: { fromUserId: viewerUserId, toProfileId: row.id } },
+      create: { fromUserId: viewerUserId, toProfileId: row.id },
+      update: { updatedAt: new Date() },
+    });
+
+    const [copy, unlocked, favorite, prevNext] = await Promise.all([
+      this.config.get<DetailCopy>(ConfigKeys.COPYWRITING),
+      this.unlock.unlockStateBetween(viewerUserId, row.ownerUserId).then((s) => !!s.active),
+      this.prisma.favoriteRecord.findUnique({ where: { fromUserId_toProfileId: { fromUserId: viewerUserId, toProfileId: row.id } } }),
+      this.neighborsOf(viewerUserId, row.id),
+    ]);
+
+    const photos = this.sortedPhotos(row.photos);
+    const avatarKey = row.owner.avatarKey ?? photos[0]?.objectKey ?? null;
+    return {
+      ...(await this.toCard(row as unknown as CandidateRow, false, false)),
+      age: new Date().getFullYear() - row.birthYear,
+      hometown: row.hometown,
+      hukou: row.hukou,
+      intro: row.intro,
+      relation: row.relation,
+      agentNickname: row.owner.nickname,
+      realnameSeal: !!row.owner.idCardNoHash,
+      avatarUrl: avatarKey ? await this.storage.signedUrl(avatarKey, 600, unlocked ? undefined : BLUR_PROCESS) : null,
+      photos: await Promise.all(
+        photos.map(async (p) => ({
+          url: await this.storage.signedUrl(p.objectKey, 600, unlocked ? undefined : BLUR_PROCESS),
+          blurred: !unlocked,
+        })),
+      ),
+      unverifiedWarnTop: row.isMaritalVerified ? null : copy.unverifiedWarnTop, // §6.3 置顶警示（话术配置下发，红线 I1）
+      contactVisible: unlocked, // 联系方式本身仍走解锁/拨打接口服务端裁决（I3）
+      favorited: !!favorite,
+      unlocked,
+      ...prevNext,
+    };
+  }
+
+  /** 收藏切换（§5.4 操作） */
+  async toggleFavorite(userId: bigint, profileId: bigint) {
+    const target = await this.mustPublicProfileById(profileId);
+    if (target.ownerUserId === userId) throw new BusinessException(400, 'SELF_NOT_ALLOWED', '不能收藏自己的档案');
+    const existing = await this.prisma.favoriteRecord.findUnique({ where: { fromUserId_toProfileId: { fromUserId: userId, toProfileId: profileId } } });
+    if (existing) {
+      await this.prisma.favoriteRecord.delete({ where: { id: existing.id } });
+      return { favorited: false };
+    }
+    await this.prisma.favoriteRecord.create({ data: { fromUserId: userId, toProfileId: profileId } });
+    return { favorited: true };
+  }
+
+  /** 打招呼免费破冰（P0 仅系统卡片占位，收件箱 P1/Step 16；不建立聊天权限） */
+  async greet(userId: bigint, profileId: bigint) {
+    const target = await this.mustPublicProfileById(profileId);
+    if (target.ownerUserId === userId) throw new BusinessException(400, 'SELF_NOT_ALLOWED', '不能给自己打招呼');
+    const my = await this.profile.getActiveProfileRaw(userId);
+    if (!my) throw new BusinessException(400, 'NEED_ACTIVE_PROFILE', '请先创建并生效你的档案');
+    const me = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { nickname: true } });
+
+    void this.im
+      .sendSystemMsg(String(target.ownerUserId), JSON.stringify({ kind: 'greet_card', matchNo: my.matchNo, nickname: me.nickname }))
+      .catch((e: Error) => this.logger.warn(`打招呼系统卡片失败: ${e.message}`));
+
+    const key = `greet:${userId}:${this.todayDate().toISOString().slice(0, 10)}`;
+    const count = Number((await this.cache.get(key)) ?? '0') + 1;
+    await this.cache.set(key, String(count), 86400);
+    return { sent: true, greetCountToday: count };
+  }
+
+  /** 转发微信卡片 + 海报数据（§5.4；仅 matchNo 不暴露 userId，编号防枚举 §6.6） */
+  async share(matchNo: string, viewerUserId: bigint) {
+    const row = await this.prisma.profile.findFirst({
+      where: { matchNo, isActive: true, auditStatus: AuditStatus.APPROVED, publishedAt: { not: null } },
+    });
+    if (!row || row.ownerUserId === viewerUserId) throw new NotFoundException('档案不存在或已下线');
+    const [copy] = [await this.config.get<DetailCopy>(ConfigKeys.COPYWRITING)];
+    const photos = this.sortedPhotos(row.photos);
+    const avatarKey = photos[0]?.objectKey ?? null; // 分享场景无法取 author（跨表），头像回退首图；无图则用默认封面路径由前端兜底
+    return {
+      title: copy.shareCardTitle,
+      pagePath: `pages/feed/detail/index?matchNo=${encodeURIComponent(matchNo)}&inviter=${encodeURIComponent(String(viewerUserId))}`,
+      imageUrl: avatarKey ? await this.storage.signedUrl(avatarKey, 600, BLUR_PROCESS) : '',
+      poster: {
+        matchNo: row.matchNo,
+        gender: row.gender,
+        birthYear: row.birthYear,
+        heightCm: row.heightCm,
+        education: row.education,
+        occupation: row.occupation,
+        residenceCity: row.residenceCity,
+        introDigest: row.intro ? row.intro.slice(0, 40) : null,
+        tip: copy.posterTip,
+      },
+    };
   }
 
   // ==================== 私有 ====================
@@ -175,6 +303,40 @@ export class FeedService {
     return s;
   }
 
+  private async mustPublicProfileById(profileId: bigint) {
+    const p = await this.prisma.profile.findFirst({
+      where: { id: profileId, isActive: true, auditStatus: AuditStatus.APPROVED, publishedAt: { not: null } },
+    });
+    if (!p) throw new NotFoundException('档案不存在或已下线');
+    return p;
+  }
+
+  private sortedPhotos(photos: Prisma.JsonValue): PhotoItem[] {
+    if (!Array.isArray(photos)) return [];
+    return (photos as unknown as PhotoItem[]).sort((a, b) => a.sort - b.sort);
+  }
+
+  /** §5.4 上一个/下一个：当日推荐序相邻（缓存序，越界/不在序内 → null） */
+  private async neighborsOf(userId: bigint, profileId: bigint): Promise<{ prevMatchNo: string | null; nextMatchNo: string | null }> {
+    const empty = { prevMatchNo: null, nextMatchNo: null };
+    let order: Array<{ profileId: string; todayOnly: boolean }>;
+    try {
+      order = await this.buildOrder(userId);
+    } catch {
+      return empty; // 无生效档案等：详情可见但无切换序列
+    }
+    const idx = order.findIndex((o) => o.profileId === String(profileId));
+    if (idx < 0) return empty;
+    const neighborIds = [order[idx - 1]?.profileId, order[idx + 1]?.profileId].filter(Boolean) as string[];
+    if (!neighborIds.length) return empty;
+    const rows = await this.prisma.profile.findMany({ where: { id: { in: neighborIds.map(BigInt) } }, select: { id: true, matchNo: true } });
+    const byId = new Map(rows.map((r) => [String(r.id), r.matchNo]));
+    return {
+      prevMatchNo: order[idx - 1] ? byId.get(order[idx - 1]!.profileId) ?? null : null,
+      nextMatchNo: order[idx + 1] ? byId.get(order[idx + 1]!.profileId) ?? null : null,
+    };
+  }
+
   private async candidatesByIds(ids: string[]): Promise<CandidateRow[]> {
     const rows = await this.prisma.profile.findMany({
       where: { id: { in: ids.map(BigInt) } },
@@ -203,7 +365,7 @@ export class FeedService {
       introDigest: c.intro ? c.intro.slice(0, 40) : null,
       memberBadge: c.owner.memberLevel === 'PAID' || c.owner.memberLevel === 'TRIAL',
       maritalVerified: c.isMaritalVerified, // 绿/灰标由前端按此布尔渲染（§6.3）
-      avatarUrl: avatarKey ? await this.storage.signedUrl(avatarKey, 600) : null,
+      avatarUrl: avatarKey ? await this.storage.signedUrl(avatarKey, 600, BLUR_PROCESS) : null, // §5.3 打码头像
       todayOnly: todayOnly && !history,
       rotationTip: todayOnly && !history && copy.rotationCardTipEnabled ? copy.rotationCardTip ?? null : null,
       unlocked: false, // 已有 active 解锁关系时由前端 check 接口确认（§6.1 放行不扣费）
