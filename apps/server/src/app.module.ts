@@ -10,6 +10,7 @@ import { CertModule } from './modules/cert/cert.module';
 import { UnlockModule } from './modules/unlock/unlock.module';
 import { FeedModule } from './modules/feed/feed.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { MiscModule } from './modules/misc/misc.module';
 import { OrderModule } from './modules/order/order.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -39,6 +40,7 @@ import { ProvidersModule } from './providers/providers.module';
     OrderModule,
     FeedModule,
     ChatModule,
+    MiscModule,
   ],
 })
 export class AppModule {}

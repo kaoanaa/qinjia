@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { REALNAME, RealnameProvider } from '../../providers/interfaces';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
+import { MiscService } from '../misc/misc.service';
 import { ReferralRewardTrigger } from './referral-reward-trigger';
 
 interface OcrDetail {
@@ -20,6 +21,7 @@ export class CertService {
     @Inject(REALNAME) private readonly realname: RealnameProvider,
     private readonly quota: QuotaService,
     private readonly referralTrigger: ReferralRewardTrigger,
+    private readonly misc: MiscService,
   ) {}
 
   /** 身份证 OCR：provider 返回掩码+哈希，原文不落库（I5）。哈希暂存 cert.detail，人脸通过后才写 user */
@@ -94,7 +96,11 @@ export class CertService {
     }
 
     if (!duplicateIdCard) {
-      await this.prisma.$transaction((tx) => this.quota.unfreezeTxFrozen(tx, userId));
+      const unfrozen = await this.prisma.$transaction((tx) => this.quota.unfreezeTxFrozen(tx, userId));
+      if (unfrozen > 0) {
+        // Step 12 系统消息（§5.12 奖励到账）：话术读 copywriting.notifyTemplates（红线 I1）
+        await this.misc.notifyByTemplate(userId, 'reward', 'realnameUnfreeze');
+      }
       await this.referralTrigger.onInviteeRealnamePassed(userId);
     } else {
       this.logger.warn(`user=${userId} 身份证与他账号重复（三唯一），新手礼保持 frozen（用例 15）`);

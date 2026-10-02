@@ -199,7 +199,13 @@ export class MockConfigCenter implements ConfigCenter {
       chatSensitiveTip: '内容涉及敏感词，请文明交流',
       shareCardTitle: '这里有个合适的亲家，介绍给你看看',
       posterTip: '长按识别，查看孩子完整资料',
+      notifyTemplates: {
+        realnameUnfreeze: { title: '实名审核通过', body: '恭喜！实名认证已通过，冻结的解锁次数已恢复，可以去解锁联系方式啦' },
+        unlockExpire: { title: '解锁已到期', body: '您解锁的联系方式已到期，聊天功能已暂停；如仍有意向可重新解锁继续联系' },
+        ticketReceived: { title: '工单已受理', body: '我们已收到您的反馈，客服将在承诺时限内与您联系' },
+      },
     },
+    ticket_sla: { firstResponseHours: 48 },
     remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
     big_pay_threshold: { amountCent: 50000 },
     coupon_templates: [],

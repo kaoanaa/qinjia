@@ -666,9 +666,27 @@ paths:
                 type: object
                 properties:
                   total: { type: integer }
+                  totalUnread: { type: integer, description: TabBar 角标 = 全部会话未读之和（Step 12 Verify） }
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/Conversation" }
+
+  /api/v1/conversations/{convId}/read:
+    post:
+      tags: [conversation]
+      summary: 会话已读（清未读数，进入会话即调）
+      operationId: markConversationRead
+      parameters:
+        - { name: convId, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unreadCount: { type: integer, description: 恒为 0 }
 
   /api/v1/im/user-sig:
     get:
@@ -956,9 +974,25 @@ paths:
                 type: object
                 properties:
                   total: { type: integer }
+                  unread: { type: integer, description: 未读系统消息数 }
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/SystemNotification" }
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [misc]
+      summary: 系统消息全部标记已读
+      operationId: readAllNotifications
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: integer }
 
   /api/v1/walls/{wallType}:
     get:
@@ -1636,6 +1670,7 @@ components:
         lastMsgDigest: { type: string, nullable: true }
         unlockExpireAt: { type: string, format: date-time, description: 过期禁发（D3） }
         canSend: { type: boolean }
+        unreadCount: { type: integer, description: 对方发来且未读的消息数 }
 
     ContactActionResult:
       type: object

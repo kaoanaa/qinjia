@@ -61,7 +61,15 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
     // §5.4 Step 11 转发微信卡片+海报话术（红线 I1）
     shareCardTitle: '这里有个合适的亲家，介绍给你看看',
     posterTip: '长按识别，查看孩子完整资料',
+    // Step 12 系统消息模板（§5.12 审核/到期/奖励到账；话术读配置，红线 I1）
+    notifyTemplates: {
+      realnameUnfreeze: { title: '实名审核通过', body: '恭喜！实名认证已通过，冻结的解锁次数已恢复，可以去解锁联系方式啦' },
+      unlockExpire: { title: '解锁已到期', body: '您解锁的联系方式已到期，聊天功能已暂停；如仍有意向可重新解锁继续联系' },
+      ticketReceived: { title: '工单已受理', body: '我们已收到您的反馈，客服将在承诺时限内与您联系' },
+    },
   },
+  // §6.5/§5.13 Step 12：工单首响 SLA（小时，禁止代码硬编码 48）
+  ticket_sla: { firstResponseHours: 48 },
   // §11-10 提醒节点（§3.2/§5.11）
   remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
   // §11-11 大额支付阈值（§5.10，¥500）
@@ -117,8 +125,27 @@ async function main() {
     },
   });
 
+  // Step 12：消息中心顶部「防诈指南」Banner（运营位内容本身即配置，红线 I1 合规）
+  await prisma.opsSlot.upsert({
+    where: { id: 2 },
+    update: {},
+    create: {
+      type: OpsSlotType.BANNER,
+      content: {
+        title: '防诈提醒',
+        text: '凡是要求转账、汇款、刷单、投资的都是诈骗！解锁前请勿透露手机号/微信号',
+        linkPage: 'pages/safety/guide/index',
+      },
+      startAt: new Date('2026-01-01T00:00:00Z'),
+      endAt: new Date('2099-12-31T23:59:59Z'),
+      sort: 1,
+      enabled: true,
+    },
+  });
+
   const count = await prisma.rewardConfig.count();
-  console.log(`seed done: reward_config=${count} keys (expect ${Object.keys(CONFIG_DEFAULTS).length}), admin=1, ops_slot=1`);
+  const slots = await prisma.opsSlot.count();
+  console.log(`seed done: reward_config=${count} keys (expect ${Object.keys(CONFIG_DEFAULTS).length}), admin=1, ops_slot=${slots}`);
   if (count !== Object.keys(CONFIG_DEFAULTS).length) {
     throw new Error('reward_config 数量与 §11 清单不一致');
   }

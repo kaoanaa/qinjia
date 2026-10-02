@@ -16,6 +16,7 @@ import { CONFIG_CENTER, ConfigCenter, ImProvider, IM } from '../../providers/int
 import { BusinessException } from '../../common/business.exception';
 import { ProfileService } from '../profile/profile.service';
 import { QuotaService } from '../quota/quota.service';
+import { MiscService } from '../misc/misc.service';
 import { OrderService, PrepayOrderView } from '../order/order.service';
 
 type UnlockTarget = Awaited<ReturnType<ProfileService['getUnlockTarget']>>;
@@ -59,6 +60,7 @@ export class UnlockService {
     @Inject(CONFIG_CENTER) private readonly config: ConfigCenter,
     @Inject(IM) private readonly im: ImProvider,
     @Inject(forwardRef(() => OrderService)) private readonly order: OrderService,
+    private readonly misc: MiscService,
   ) {}
 
   async check(userId: bigint, profileId: bigint): Promise<{
@@ -323,6 +325,11 @@ export class UnlockService {
       const owner = await this.prisma.profile.findUniqueOrThrow({ where: { id: rec.targetProfileId }, select: { ownerUserId: true } });
       const [a, b] = rec.initiatorUserId < owner.ownerUserId ? [rec.initiatorUserId, owner.ownerUserId] : [owner.ownerUserId, rec.initiatorUserId];
       void this.im.forbidSend(String(a), String(b)).catch((e: Error) => this.logger.warn(`IM forbidSend 失败: ${e.message}`));
+      // Step 12 系统消息（§5.12 到期提醒，开关 expireRemind=false 则静默；话术读配置 I1）
+      const pref = await this.prisma.notifyPref.findUnique({ where: { userId: rec.initiatorUserId } });
+      if ((pref?.switches as Record<string, boolean>)?.expireRemind !== false) {
+        await this.misc.notifyByTemplate(rec.initiatorUserId, 'expire', 'unlockExpire');
+      }
     }
     if (due.length > 0) this.logger.log(`解锁过期清扫 ${due.length} 笔`);
     return due.length;

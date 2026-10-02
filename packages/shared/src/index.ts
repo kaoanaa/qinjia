@@ -135,6 +135,7 @@ export const ConfigKeys = {
   COUPON_TEMPLATES: 'coupon_templates', // 券模板
   OPS_SLOTS: 'ops_slots', // 运营位内容
   IM_CONFIG: 'im_config', // Step 10 Exit：IM 通道与风控（sdkAppId/订阅消息模板 ID/敏感词），模板 ID 进 reward_config
+  TICKET_SLA: 'ticket_sla', // Step 12：工单首响 SLA（§6.5/§5.13，默认 48h，禁止代码写死）
 } as const;
 
 /** 金额单位：全站以「分」存储与计算，禁止浮点 */

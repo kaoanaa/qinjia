@@ -61,6 +61,14 @@ export class ChatController {
     return this.chat.contactAction(userId, parseId(profileId, 'profileId'), ContactAction.SEND_PHOTO, dto.photoIndex);
   }
 
+  /** 会话已读（Step 12 角标清零） */
+  @Post('conversations/:convId/read')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  markRead(@CurrentUserId() userId: bigint, @Param('convId') convId: string) {
+    return this.chat.markConversationRead(userId, parseId(convId, 'convId'));
+  }
+
   /** 留痕查询（退款判定 D7 入口） */
   @Get('conversations/:convId/contact-actions')
   @UseGuards(JwtAuthGuard)

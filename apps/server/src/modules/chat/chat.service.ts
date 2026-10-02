@@ -69,11 +69,29 @@ export class ChatService {
     const items = await Promise.all(
       convs.map(async (conv) => {
         const other = conv.userA === userId ? conv.userB : conv.userA;
-        const state = await this.unlock.unlockStateBetween(userId, other);
-        return this.unlock.conversationView(conv, userId, state.active?.expireAt ?? state.lastExpireAt ?? new Date(0));
+        const [state, unreadCount] = await Promise.all([
+          this.unlock.unlockStateBetween(userId, other),
+          this.prisma.message.count({ where: { convId: conv.id, senderUserId: other, readFlag: false } }), // Step 12 角标
+        ]);
+        return { ...(await this.unlock.conversationView(conv, userId, state.active?.expireAt ?? state.lastExpireAt ?? new Date(0))), unreadCount };
       }),
     );
-    return { total, page, size, items };
+    // TabBar 角标 = 未读会话数之和（Step 12 Verify）：按全部会话汇总，不受分页影响
+    const allConvs = await this.prisma.conversation.findMany({ where, select: { id: true, userA: true, userB: true } });
+    const totalUnread = allConvs.length
+      ? await this.prisma.message.count({
+          where: { convId: { in: allConvs.map((c) => c.id) }, readFlag: false, senderUserId: { not: userId } },
+        })
+      : 0;
+    return { total, totalUnread, page, size, items };
+  }
+
+  /** 进入会话即清未读（契约 POST /conversations/{id}/read） */
+  async markConversationRead(userId: bigint, convId: bigint) {
+    const conv = await this.prisma.conversation.findFirst({ where: { id: convId, OR: [{ userA: userId }, { userB: userId }] } });
+    if (!conv) throw new NotFoundException('会话不存在');
+    await this.prisma.message.updateMany({ where: { convId: conv.id, readFlag: false, senderUserId: { not: userId } }, data: { readFlag: true } });
+    return { unreadCount: 0 };
   }
 
   async getUserSig(userId: bigint) {
