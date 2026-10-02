@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ConfigCenter,
   ImProvider,
+  KvCache,
   RealnameProvider,
   SmsProvider,
   StorageProvider,
@@ -131,6 +132,29 @@ export class MockStorage implements StorageProvider {
       uploadUrl: `https://mock-oss.local/put?bucket=${bucket}`,
       expiresAt: new Date(Date.now() + 900_000),
     };
+  }
+}
+
+@Injectable()
+export class MockKvCache implements KvCache {
+  private readonly store = new Map<string, { value: string; expireAt: number }>();
+
+  async get(key: string) {
+    const hit = this.store.get(key);
+    if (!hit) return null;
+    if (hit.expireAt <= Date.now()) {
+      this.store.delete(key);
+      return null;
+    }
+    return hit.value;
+  }
+
+  async set(key: string, value: string, ttlSeconds: number) {
+    this.store.set(key, { value, expireAt: Date.now() + ttlSeconds * 1000 });
+  }
+
+  async del(key: string) {
+    this.store.delete(key);
   }
 }
 

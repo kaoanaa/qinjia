@@ -11,6 +11,7 @@ export const REALNAME = Symbol('REALNAME');
 export const SMS = Symbol('SMS');
 export const STORAGE = Symbol('STORAGE');
 export const CONFIG_CENTER = Symbol('CONFIG_CENTER');
+export const KV_CACHE = Symbol('KV_CACHE');
 
 export interface WechatAuth {
   /** code2session：小程序登录 */
@@ -73,6 +74,13 @@ export interface StorageProvider {
   createUploadToken(bucket: 'photos' | 'marital_proof' | 'id_card', mime: string): Promise<{ objectKey: string; uploadUrl: string; expiresAt: Date }>;
   /** 生成限时签名 URL（打码图走 CDN 处理参数） */
   signedUrl(objectKey: string, ttlSeconds: number, process?: string): Promise<string>;
+}
+
+/** KV 缓存（feed 分页/幂等短存）：REDIS_URL 存在走 Redis，否则内存 mock（CI 无外网） */
+export interface KvCache {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, ttlSeconds: number): Promise<void>;
+  del(key: string): Promise<void>;
 }
 
 /** 配置中心抽象（§3.5，红线 I1：业务代码禁止出现裸数值） */

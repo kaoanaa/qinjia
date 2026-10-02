@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CONFIG_CENTER,
   IM,
+  KV_CACHE,
+  KvCache,
   REALNAME,
   SMS,
   STORAGE,
@@ -12,9 +14,11 @@ import {
   WX_PAY,
 } from './interfaces';
 import { DbConfigCenter } from './db-config-center';
+import { RedisKvCache } from './redis-kv';
 import {
   MockConfigCenter,
   MockIm,
+  MockKvCache,
   MockRealname,
   MockSms,
   MockStorage,
@@ -45,7 +49,16 @@ import {
           ? new MockConfigCenter()
           : new DbConfigCenter(prisma),
     },
+    {
+      provide: KV_CACHE,
+      inject: [ConfigService],
+      // feed 分页缓存等：REDIS_URL 存在走真实 Redis（本地 compose/生产），否则内存 mock（CI 无外网）
+      useFactory: (config: ConfigService): KvCache => {
+        const url = config.get<string>('REDIS_URL');
+        return url ? new RedisKvCache(url) : new MockKvCache();
+      },
+    },
   ],
-  exports: [WECHAT_AUTH, WX_PAY, IM, REALNAME, SMS, STORAGE, CONFIG_CENTER],
+  exports: [WECHAT_AUTH, WX_PAY, IM, REALNAME, SMS, STORAGE, CONFIG_CENTER, KV_CACHE],
 })
 export class ProvidersModule {}
