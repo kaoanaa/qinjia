@@ -5,6 +5,7 @@ import { validateEnv } from './config/env.validation';
 import { AuthModule } from './modules/auth/auth.module';
 import { QuotaModule } from './modules/quota/quota.module';
 import { ProfileModule } from './modules/profile/profile.module';
+import { CertModule } from './modules/cert/cert.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProvidersModule } from './providers/providers.module';
@@ -27,6 +28,7 @@ import { ProvidersModule } from './providers/providers.module';
     AuthModule,
     QuotaModule,
     ProfileModule,
+    CertModule,
   ],
 })
 export class AppModule {}

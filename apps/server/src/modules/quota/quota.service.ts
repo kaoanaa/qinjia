@@ -72,6 +72,22 @@ export class QuotaService {
   }
 
   /**
+   * 实名通过解冻（D9，§3.1 H 节点）：FROZEN → ACTIVE，额度数量不变。
+   * 三唯一命中（同身份证二次注册）时禁止调用 —— 新手礼保持 frozen 直至过期 = 无福利（用例 15）。
+   */
+  async unfreezeTxFrozen(tx: Prisma.TransactionClient, userId: bigint): Promise<number> {
+    const frozen = await tx.memberQuota.findMany({ where: { userId, status: QuotaStatus.FROZEN } });
+    for (const batch of frozen) {
+      await tx.memberQuota.update({ where: { id: batch.id }, data: { status: QuotaStatus.ACTIVE } });
+      await tx.quotaTxLog.create({
+        data: { userId, quotaId: batch.id, reason: QuotaTxReason.GRANT, change: 0, refType: 'unfreeze', refId: batch.id },
+      });
+    }
+    if (frozen.length > 0) this.logger.log(`user=${userId} 实名通过，解冻 ${frozen.length} 笔额度批次`);
+    return frozen.length;
+  }
+
+  /**
    * 余额视图（FEFO 排序展示，D11/D12）。
    * frozen（未实名）不计入 totalRemaining（用例 11）。
    */

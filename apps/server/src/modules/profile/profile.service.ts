@@ -34,7 +34,7 @@ export class ProfileService {
       where: { ownerUserId: userId },
       orderBy: { createdAt: 'asc' },
     });
-    return { items: rows.map((p) => this.toView(p)) };
+    return { items: await Promise.all(rows.map((p) => this.toView(p))) };
   }
 
   /** 新建档案（草稿）。首份档案自动生效（无生效档案时的兜底） */
@@ -83,7 +83,8 @@ export class ProfileService {
    * 发布（服务端强制校验，红线 I4 不可绕过）：
    * 1) 单身承诺书本次必须勾选 → 否则 403 COMMITMENT_REQUIRED（用例 5）
    * 2) 至少 1 张照片
-   * 3) 实名通过 + 子女授权（relation≠SELF）：Step 6 接入，当前留 TODO
+   * 3) 实名通过（Step 6）→ 403 REALNAME_REQUIRED
+   * 4) 子女授权 consent_record（Step 6，relation≠SELF）→ 403 CONSENT_REQUIRED
    */
   async publish(userId: bigint, profileId: bigint, dto: PublishProfileDto, ip: string) {
     const current = await this.mustOwn(userId, profileId);
@@ -95,8 +96,16 @@ export class ProfileService {
     if (photos.length === 0) {
       throw new BadRequestException('发布前请至少上传 1 张照片');
     }
-    // TODO(Step 6): user.idCardNoHash 为空 → 403 REALNAME_REQUIRED；
-    // TODO(Step 6): relation≠SELF 且无 ConsentRecord(DONE) → 403 CONSENT_REQUIRED
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { idCardNoHash: true } });
+    if (!owner?.idCardNoHash) {
+      throw BusinessException.forbidden('REALNAME_REQUIRED', '请先完成实名认证再发布');
+    }
+    if (current.relation !== 'SELF') {
+      const consent = await this.prisma.consentRecord.count({ where: { profileId } });
+      if (consent === 0) {
+        throw BusinessException.forbidden('CONSENT_REQUIRED', '请子女完成短信授权后再发布');
+      }
+    }
 
     const profile = await this.prisma.profile.update({
       where: { id: profileId },
@@ -178,7 +187,7 @@ export class ProfileService {
     throw new Error('matchNo 生成失败，请重试');
   }
 
-  private toView(p: Profile) {
+  private async toView(p: Profile) {
     const photos = (p.photos as unknown as PhotoItem[] | null) ?? [];
     return {
       id: p.id.toString(),
@@ -206,8 +215,13 @@ export class ProfileService {
       rejectReason: p.rejectReason,
       singleCommitmentSignedAt: p.singleCommitmentSignedAt?.toISOString() ?? null,
       publishedAt: p.publishedAt?.toISOString() ?? null,
-      /** 子女授权态：Step 6 起接 ConsentRecord 判定 DONE；本人档案恒为 NOT_REQUIRED */
-      consentStatus: p.relation === 'SELF' ? 'NOT_REQUIRED' : 'PENDING',
+      /** 子女授权态（§5.2）：本人档案恒为 NOT_REQUIRED；否则以 consent_record 留痕判定 */
+      consentStatus:
+        p.relation === 'SELF'
+          ? 'NOT_REQUIRED'
+          : (await this.prisma.consentRecord.count({ where: { profileId: p.id } })) > 0
+            ? 'DONE'
+            : 'PENDING',
     };
   }
 }

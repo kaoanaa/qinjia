@@ -56,8 +56,8 @@ export interface ImProvider {
 export interface RealnameProvider {
   /** 身份证 OCR，返回脱敏摘要（原文不落库，I5） */
   idCardOcr(imageUrl: string): Promise<{ name: string; idCardNoMasked: string; idCardNoHash: string; gender: string; birthYear: number }>;
-  /** 人脸核身：与公安库比对 */
-  faceVerify(params: { name: string; idCardNo: string; sessionId: string }): Promise<{ passed: boolean; verifyToken: string }>;
+  /** 人脸核身结果查询：真实实现按 sessionId(bizId) 向 provider 拉取结论，无需回传证件号（I5） */
+  faceVerify(params: { sessionId: string; name?: string; idCardNo?: string }): Promise<{ passed: boolean; verifyToken: string }>;
 }
 
 export interface SmsProvider {

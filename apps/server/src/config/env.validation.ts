@@ -25,6 +25,10 @@ export class EnvVars {
   @IsString() @IsOptional()
   JWT_SECRET?: string;
 
+  /** 敏感字段静态加密密钥（PIPL），缺省回落 JWT_SECRET，生产必须独立配置 */
+  @IsString() @IsOptional()
+  CONSENT_ENC_KEY?: string;
+
   @IsString() @IsOptional()
   WX_APPID?: string;
 

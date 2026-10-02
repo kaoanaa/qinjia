@@ -41,6 +41,11 @@ describe('Profile 建档与多档案 (e2e)', () => {
       .send({ code: `P_${suffix}` })
       .expect(201);
     token = login.body.token;
+
+    // Step 6 起发布强制实名：先走通 OCR + 人脸（mock），否则 publish 返回 403 REALNAME_REQUIRED
+    await request(app.getHttpServer()).post('/api/v1/cert/idcard-ocr').set(auth()).send({ objectKey: `id_card/ocr_${suffix}.jpg` }).expect(200);
+    const face = await request(app.getHttpServer()).post('/api/v1/cert/face-init').set(auth()).send({}).expect(200);
+    await request(app.getHttpServer()).post('/api/v1/cert/face-verify').set(auth()).send({ sessionId: face.body.sessionId }).expect(200);
   });
 
   afterAll(async () => {
@@ -97,12 +102,26 @@ describe('Profile 建档与多档案 (e2e)', () => {
     expect(upd.body.photoObjectKeys).toEqual(['photos/a1.jpg', 'photos/a2.jpg']);
     expect(upd.body.auditStatus).toBe('DRAFT'); // DRAFT 编辑不触发重审
 
+    // 关系≠SELF：先完成子女短信授权（Step 6），否则 403 CONSENT_REQUIRED
+    const childPhone = `138${suffix.slice(-8)}`;
+    await request(app.getHttpServer())
+      .post('/api/v1/consent/send-sms')
+      .set(auth())
+      .send({ profileId: String(profileA), childPhone })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/v1/consent/verify')
+      .set(auth())
+      .send({ profileId: String(profileA), childPhone, code: '123456', statementAccepted: true, statementVersion: 'v1' })
+      .expect(200);
+
     const pub = await request(app.getHttpServer())
       .post(`/api/v1/profiles/${profileA}/publish`)
       .set(auth())
       .send({ commitmentChecked: true, commitmentVersion: 'v1.0' })
       .expect(200);
     expect(pub.body.auditStatus).toBe('PENDING');
+    expect(pub.body.consentStatus).toBe('DONE');
     expect(pub.body.publishedAt).not.toBeNull();
     expect(pub.body.singleCommitmentSignedAt).not.toBeNull();
 

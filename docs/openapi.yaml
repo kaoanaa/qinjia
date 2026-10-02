@@ -380,9 +380,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [profileId, code, statementAccepted, statementVersion]
+              required: [profileId, childPhone, code, statementAccepted, statementVersion]
               properties:
                 profileId: { type: string, format: int64 }
+                childPhone: { type: string, description: 与 send-sms 一致；真实短信服务按 phone+scene 校验验证码归属 }
                 code: { type: string }
                 statementAccepted: { type: boolean }
                 statementVersion: { type: string }

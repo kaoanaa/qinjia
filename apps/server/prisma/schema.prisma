@@ -310,6 +310,8 @@ model Certification {
   result     CertResult @default(PENDING)
   provider   String // aliyun/tencent/...
   verifyToken String?
+  sessionId  String?    @unique // 人脸核身会话（face-verify 反查）
+  detail     Json? // 仅存掩码/哈希等非明文摘要（I5：原文不落库）
   createdAt  DateTime   @default(now())
 
   user User @relation(fields: [userId], references: [id])
