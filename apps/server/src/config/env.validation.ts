@@ -23,6 +23,9 @@ export class EnvVars {
   MOCK_PROVIDERS: string = 'true';
 
   @IsString() @IsOptional()
+  JWT_SECRET?: string;
+
+  @IsString() @IsOptional()
   WX_APPID?: string;
 
   @IsString() @IsOptional()

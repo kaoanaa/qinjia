@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation';
+import { AuthModule } from './modules/auth/auth.module';
+import { QuotaModule } from './modules/quota/quota.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProvidersModule } from './providers/providers.module';
@@ -21,6 +23,8 @@ import { ProvidersModule } from './providers/providers.module';
     HealthModule,
     PrismaModule,
     ProvidersModule,
+    AuthModule,
+    QuotaModule,
   ],
 })
 export class AppModule {}
