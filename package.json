@@ -1,0 +1,12 @@
+{
+  "name": "qinjia",
+  "private": true,
+  "scripts": {
+    "dev:server": "pnpm --filter @qinjia/server start:dev",
+    "dev:miniapp": "pnpm --filter @qinjia/miniapp dev:h5",
+    "dev:admin": "pnpm --filter @qinjia/admin dev",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter @qinjia/server test"
+  },
+  "packageManager": "pnpm@9.14.2"
+}

@@ -1,0 +1,28 @@
+/**
+ * 中老年适配 Design Token（PRD §8 / 红线 I6）
+ * 字号 ≥16pt 基准（≈32rpx）、高对比、层级 ≤3
+ */
+$font-xs: 28rpx; // 14pt 仅用于次要说明
+$font-base: 32rpx; // 16pt 基准正文
+$font-lg: 38rpx;
+$font-xl: 44rpx;
+$font-title: 48rpx;
+
+$color-text: #222222; // 高对比主文本
+$color-text-sub: #555555;
+$color-primary: #E64340; // 品牌红
+$color-success: #07C160; // 婚姻已核验绿标
+$color-warn: #FA5151; // 警示/灰标文案加深对比
+$color-bg: #F6F6F6;
+$color-card: #FFFFFF;
+
+$btn-height: 96rpx; // 电话/微信等关键按钮最大化
+$btn-height-lg: 112rpx;
+$radius: 16rpx;
+$spacing: 32rpx;
+
+page {
+  font-size: $font-base;
+  color: $color-text;
+  background-color: $color-bg;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "完美亲家",
+  "appid": "",
+  "description": "父母代子女相亲平台",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "",
+    "setting": { "urlCheck": false, "es6": true, "minified": true },
+    "usingComponents": true
+  },
+  "h5": {
+    "router": { "base": "./" }
+  },
+  "vueVersion": "3"
+}
