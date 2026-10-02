@@ -12,7 +12,7 @@ import { Conversation, Prisma, UnlockPayType, UnlockRecord, UnlockStatus } from 
 import { randomUUID } from 'node:crypto';
 import { ConfigKeys } from '@qinjia/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONFIG_CENTER, ConfigCenter } from '../../providers/interfaces';
+import { CONFIG_CENTER, ConfigCenter, ImProvider, IM } from '../../providers/interfaces';
 import { BusinessException } from '../../common/business.exception';
 import { ProfileService } from '../profile/profile.service';
 import { QuotaService } from '../quota/quota.service';
@@ -57,6 +57,7 @@ export class UnlockService {
     private readonly profile: ProfileService,
     private readonly quota: QuotaService,
     @Inject(CONFIG_CENTER) private readonly config: ConfigCenter,
+    @Inject(IM) private readonly im: ImProvider,
     @Inject(forwardRef(() => OrderService)) private readonly order: OrderService,
   ) {}
 
@@ -186,9 +187,45 @@ export class UnlockService {
       initiatorUserId < target.ownerUserId ? [initProfile.id, target.id] : [target.id, initProfile.id];
     const existing = await tx.conversation.findUnique({ where: { userA_userB: { userA, userB } } });
     if (existing) return existing;
-    return tx.conversation.create({
+    const conv = await tx.conversation.create({
       data: { userA, userB, profileA, profileB, unlockRecordId, imConvId: `mock_conv_${randomUUID()}` },
     });
+    // §3.4 解锁成功→IM 双向开放（SS 模式下 TIER 权限最终由服务端回调裁决，addFriend 失败不阻断解锁）
+    void this.im.addFriend(String(userA), String(userB)).catch((e: Error) => this.logger.warn(`IM addFriend 失败: ${e.message}`));
+    return conv;
+  }
+
+  /** 两用户间当前生效的解锁（任意方向；被动方双向可聊 D12） */
+  async activeUnlockBetween(userA: bigint, userB: bigint): Promise<UnlockRecord | null> {
+    const pairWhere = await this.pairUnlockWhere(userA, userB);
+    if (!pairWhere) return null;
+    return this.prisma.unlockRecord.findFirst({
+      where: { ...pairWhere, status: UnlockStatus.ACTIVE, expireAt: { gt: new Date() } },
+      orderBy: { expireAt: 'desc' },
+    });
+  }
+
+  /** 会话列表/接触升级用：当前生效解锁 + 最近一次过期时间（区分"未解锁/已过期"话术） */
+  async unlockStateBetween(userA: bigint, userB: bigint): Promise<{ active: UnlockRecord | null; lastExpireAt: Date | null }> {
+    const pairWhere = await this.pairUnlockWhere(userA, userB);
+    if (!pairWhere) return { active: null, lastExpireAt: null };
+    const [active, last] = await Promise.all([
+      this.prisma.unlockRecord.findFirst({ where: { ...pairWhere, status: UnlockStatus.ACTIVE, expireAt: { gt: new Date() } }, orderBy: { expireAt: 'desc' } }),
+      this.prisma.unlockRecord.findFirst({ where: pairWhere, orderBy: { expireAt: 'desc' }, select: { expireAt: true } }),
+    ]);
+    return { active, lastExpireAt: last?.expireAt ?? null };
+  }
+
+  /** 解锁方向：target 档案属主是 A → 发起方必为 B（反之亦然） */
+  private async pairUnlockWhere(userA: bigint, userB: bigint) {
+    const owned = await this.prisma.profile.findMany({ where: { ownerUserId: { in: [userA, userB] } }, select: { id: true, ownerUserId: true } });
+    if (owned.length < 2) return null;
+    return {
+      OR: owned.map((p) => ({
+        initiatorUserId: p.ownerUserId === userA ? userB : userA,
+        targetProfileId: p.id,
+      })),
+    };
   }
 
   async conversationView(conv: Conversation, viewerUserId: bigint, unlockExpireAt: Date) {
@@ -278,11 +315,14 @@ export class UnlockService {
     return { total: items.length, items: items.slice((page - 1) * size, page * size) };
   }
 
-  /** 过期清扫（定时任务 + 测试直调，用例 3）；会话历史保留，仅状态迁移 */
+  /** 过期清扫（定时任务 + 测试直调，用例 3）；会话历史保留，仅状态迁移 + IM 关权限（ARCHITECTURE 定时任务表） */
   async expireOverdue(): Promise<number> {
     const due = await this.prisma.unlockRecord.findMany({ where: { status: UnlockStatus.ACTIVE, expireAt: { lte: new Date() } } });
     for (const rec of due) {
       await this.prisma.unlockRecord.update({ where: { id: rec.id }, data: { status: UnlockStatus.EXPIRED } });
+      const owner = await this.prisma.profile.findUniqueOrThrow({ where: { id: rec.targetProfileId }, select: { ownerUserId: true } });
+      const [a, b] = rec.initiatorUserId < owner.ownerUserId ? [rec.initiatorUserId, owner.ownerUserId] : [owner.ownerUserId, rec.initiatorUserId];
+      void this.im.forbidSend(String(a), String(b)).catch((e: Error) => this.logger.warn(`IM forbidSend 失败: ${e.message}`));
     }
     if (due.length > 0) this.logger.log(`解锁过期清扫 ${due.length} 笔`);
     return due.length;

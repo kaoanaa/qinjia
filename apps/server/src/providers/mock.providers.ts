@@ -85,6 +85,9 @@ export class MockIm implements ImProvider {
   async addFriend() {}
   async forbidSend() {}
   async sendSystemMsg() {}
+  async userSig(userId: string) {
+    return `mock_sig_${userId}`; // 真实实现：TLMSig/AdminSig 三元素签名（Step 后续接入 im-sdk）
+  }
 }
 
 @Injectable()
@@ -189,11 +192,21 @@ export class MockConfigCenter implements ConfigCenter {
         { key: 'im', label: '双向畅聊' },
         { key: 'records', label: '解锁记录' },
       ],
+      chatNotUnlockedTip: '对方尚未解锁你，解锁后才能发消息',
+      chatExpiredSendTip: '解锁已过期，重新解锁后才能发送消息',
+      chatBlockedContactTip: '为防止诈骗，解锁前禁止发送微信号/手机号等联系方式',
+      chatSensitiveTip: '内容涉及敏感词，请文明交流',
     },
     remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
     big_pay_threshold: { amountCent: 50000 },
     coupon_templates: [],
     ops_slots: [],
+    im_config: {
+      sdkAppId: 'MOCK_IM_SDK_1400000000',
+      subscribeTemplates: { newMessage: 'MOCK_TPL_NEW_MESSAGE' },
+      sensitiveWords: ['转账', '汇款', '刷单', '杀猪盘'],
+      imageGuardStrategy: 'msg_audit_with_ocr_fallback',
+    },
   };
 
   async get<T>(key: string) {

@@ -726,6 +726,30 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ContactActionResult" }
 
+  /api/v1/conversations/{convId}/contact-actions:
+    get:
+      tags: [contact]
+      summary: 会话内接触升级留痕（退款判定 D7 查询入口）
+      operationId: listContactActions
+      parameters:
+        - { name: convId, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        action: { type: string, enum: [EXCHANGE_WECHAT, CALL_PHONE, SEND_PHOTO] }
+                        actorUserId: { type: string }
+                        loggedAt: { type: string, format: date-time }
+
   # ==================== member & order ====================
   /api/v1/member/plans:
     get:
@@ -1585,6 +1609,8 @@ components:
         action: { type: string, enum: [EXCHANGE_WECHAT, CALL_PHONE, SEND_PHOTO] }
         loggedAt: { type: string, format: date-time }
         cardSent: { type: boolean }
+        phone: { type: string, nullable: true, description: 仅 CALL_PHONE 且服务端校验解锁有效期内返回（红线 I3，前端隐藏不算数） }
+        photoUrl: { type: string, nullable: true, description: 仅 SEND_PHOTO：限时签名清晰原图 URL }
 
     MemberPlan:
       type: object

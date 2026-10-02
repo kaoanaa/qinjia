@@ -53,6 +53,11 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
       { key: 'im', label: '双向畅聊' },
       { key: 'records', label: '解锁记录' },
     ],
+    // §5.6 IM 回调拒绝话术（ErrorInfo 展示给发送者）
+    chatNotUnlockedTip: '对方尚未解锁你，解锁后才能发消息',
+    chatExpiredSendTip: '解锁已过期，重新解锁后才能发送消息',
+    chatBlockedContactTip: '为防止诈骗，解锁前禁止发送微信号/手机号等联系方式',
+    chatSensitiveTip: '内容涉及敏感词，请文明交流',
   },
   // §11-10 提醒节点（§3.2/§5.11）
   remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
@@ -66,6 +71,16 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
   ops_slots: {},
   // §11-14 解锁有效期与额度语义（D3/D12）
   unlock_validity: { days: 30 },
+  // Step 10 Exit：IM 通道配置（订阅消息模板 ID 进 reward_config，禁止代码硬编码）
+  im_config: {
+    sdkAppId: 'MOCK_IM_SDK_1400000000',
+    subscribeTemplates: {
+      newMessage: 'MOCK_TPL_NEW_MESSAGE', // 离线新消息补达模板
+    },
+    sensitiveWords: ['转账', '汇款', '刷单', '杀猪盘'],
+    // 联系方式防爬策略（§5.6）：文本走服务端正则拦截；图片走 msgAudit 鉴黄 + OCR 兜底（真实实现接入天御）
+    imageGuardStrategy: 'msg_audit_with_ocr_fallback',
+  },
 };
 
 async function main() {

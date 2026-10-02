@@ -52,6 +52,8 @@ export interface ImProvider {
   forbidSend(userA: string, userB: string): Promise<void>;
   /** 发送群系统/全局系统通知 */
   sendSystemMsg(toUserId: string, content: string): Promise<void>;
+  /** 签发 UserSig（前端 IM SDK 登录态；sdkAppId 读 im_config） */
+  userSig(userId: string): Promise<string>;
 }
 
 export interface RealnameProvider {

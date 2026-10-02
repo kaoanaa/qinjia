@@ -134,6 +134,7 @@ export const ConfigKeys = {
   BIG_PAY_THRESHOLD: 'big_pay_threshold', // 大额支付阈值 500 元（分为单位存）
   COUPON_TEMPLATES: 'coupon_templates', // 券模板
   OPS_SLOTS: 'ops_slots', // 运营位内容
+  IM_CONFIG: 'im_config', // Step 10 Exit：IM 通道与风控（sdkAppId/订阅消息模板 ID/敏感词），模板 ID 进 reward_config
 } as const;
 
 /** 金额单位：全站以「分」存储与计算，禁止浮点 */

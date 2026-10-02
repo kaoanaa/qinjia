@@ -9,6 +9,7 @@ import { ProfileModule } from './modules/profile/profile.module';
 import { CertModule } from './modules/cert/cert.module';
 import { UnlockModule } from './modules/unlock/unlock.module';
 import { FeedModule } from './modules/feed/feed.module';
+import { ChatModule } from './modules/chat/chat.module';
 import { OrderModule } from './modules/order/order.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -37,6 +38,7 @@ import { ProvidersModule } from './providers/providers.module';
     UnlockModule,
     OrderModule,
     FeedModule,
+    ChatModule,
   ],
 })
 export class AppModule {}

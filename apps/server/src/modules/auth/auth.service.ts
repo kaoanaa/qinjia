@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Prisma, ReferralRewardStatus, User } from '@prisma/client';
 import { randomInt } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WechatAuth, WECHAT_AUTH } from '../../providers/interfaces';
+import { ImProvider, IM, WechatAuth, WECHAT_AUTH } from '../../providers/interfaces';
 import { QuotaService } from '../quota/quota.service';
 
 const INVITE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // 去易混淆字符
@@ -15,6 +15,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(WECHAT_AUTH) private readonly wechat: WechatAuth,
+    @Inject(IM) private readonly im: ImProvider,
     private readonly quota: QuotaService,
     private readonly jwt: JwtService,
   ) {}
@@ -81,6 +82,8 @@ export class AuthService {
     }
 
     this.logger.log(`新用户注册 id=${user.id} openid=${openid}`);
+    // §5.6/ARCHITECTURE 3.4：注册即同步 IM 账号（userId→IM id）；失败不阻断登录，发消息权限恒由服务端回调裁决
+    void this.im.accountImport(user.id.toString(), user.nickname).catch((e: Error) => this.logger.warn(`IM 账号同步失败: ${e.message}`));
     return { token: await this.sign(user), isNewUser: true, user: await this.toView(user) };
   }
 
