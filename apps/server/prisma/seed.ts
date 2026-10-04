@@ -81,6 +81,9 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
     },
     managerWelcomeTip: '您好，我是您的专属脱单管家，已收到您的服务需求，接下来由我为您提供 1v1 介绍服务',
     refundRulesTip: '退款将按平台规则核算，原路退回预计 3-7 个工作日到账',
+    // Step 18 P2 占位话术（D8：直播/本地群不开发，仅"敬请期待"）
+    livePlaceholder: '直播相亲正在筹备中，敬请期待',
+    groupPlaceholder: '同城家长群正在筹备中，敬请期待',
     // Step 15 邀请页规则话术（{days}/{quota} 由服务端按 invite_reward 配置填充，红线 I1）
     inviteRuleTip: '好友完成实名认证后，您可获得 {days} 天会员时长和 {quota} 次免费解锁；同一手机/微信号终身仅一次，多开不叠加',
   },

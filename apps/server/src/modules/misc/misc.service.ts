@@ -358,6 +358,14 @@ export class MiscService {
         });
     return { leadId: lead.id.toString(), status: lead.status };
   }
+
+  // ==================== P2 占位（D8/Step 18） ====================
+
+  /** 直播浮窗/本地群：不建表不开发，仅"敬请期待"话术（读 copywriting 配置，红线 I1） */
+  async p2Placeholder(copyKey: 'livePlaceholder' | 'groupPlaceholder') {
+    const copy = await this.config.get<Record<string, string | undefined>>(ConfigKeys.COPYWRITING);
+    return { available: false, tip: copy[copyKey] ?? null };
+  }
 }
 
 function maskNickname(n: string): string {

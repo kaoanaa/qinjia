@@ -98,6 +98,17 @@ export class MiscController {
     return this.misc.createManagerLead(userId, dto);
   }
 
+  /** P2 占位（D8/Step 18）：免登录，恒 available=false + 敬请期待话术 */
+  @Get('live/widget')
+  liveWidget() {
+    return this.misc.p2Placeholder('livePlaceholder');
+  }
+
+  @Get('local-groups')
+  localGroups() {
+    return this.misc.p2Placeholder('groupPlaceholder');
+  }
+
   @Get('blacklist')
   @UseGuards(JwtAuthGuard)
   listBlacklist(@CurrentUserId() userId: bigint) {

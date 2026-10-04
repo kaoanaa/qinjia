@@ -991,6 +991,41 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/OpsSlot" }
 
+  # ==================== P2 占位（D8/Step 18：直播、本地群——不建表不开发，仅 stub） ====================
+  /api/v1/live/widget:
+    get:
+      tags: [ops]
+      summary: 直播浮窗（P2 占位 D8）：仅返回"敬请期待"话术（读 copywriting 配置，红线 I1），不开发
+      security: []
+      operationId: getLiveWidget
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean, description: 恒为 false（P2 未开发） }
+                  tip: { type: string }
+
+  /api/v1/local-groups:
+    get:
+      tags: [ops]
+      summary: 本地群入口（P2 占位 D8）：仅返回"敬请期待"话术（读 copywriting 配置，红线 I1），不开发
+      security: []
+      operationId: listLocalGroups
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean, description: 恒为 false（P2 未开发） }
+                  tip: { type: string }
+
   # ==================== misc（消息中心/记录/搜索/工单/管家/设置） ====================
   /api/v1/notifications:
     get:

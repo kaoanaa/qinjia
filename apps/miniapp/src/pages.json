@@ -42,7 +42,9 @@
     { "path": "pages/settings/close-account", "style": { "navigationBarTitleText": "注销账号" } },
     { "path": "pages/settings/notify", "style": { "navigationBarTitleText": "通知设置" } },
     { "path": "pages/speedup/lead", "style": { "navigationBarTitleText": "1v1服务登记" } },
-    { "path": "pages/search/index", "style": { "navigationBarTitleText": "精准搜索" } }
+    { "path": "pages/search/index", "style": { "navigationBarTitleText": "精准搜索" } },
+    { "path": "pages/live/index", "style": { "navigationBarTitleText": "直播相亲" } },
+    { "path": "pages/group/index", "style": { "navigationBarTitleText": "同城家长群" } }
   ],
   "tabBar": {
     "color": "#7A7A7A",

@@ -240,4 +240,15 @@ describe('消息中心与我的 (e2e, 真实 MySQL)', () => {
 
     await request(server()).get('/api/v1/ops/slots?type=BOGUS').expect(400);
   });
+
+  // ==================== P2 占位 stub（D8/Step 18：直播/本地群不开发） ====================
+  it('P2 占位：live/widget 与 local-groups 免登录恒 available=false，话术读 copywriting 配置（红线 I1）', async () => {
+    const live = await request(server()).get('/api/v1/live/widget').expect(200);
+    expect(live.body.available).toBe(false);
+    expect(live.body.tip).toContain('敬请期待');
+
+    const groups = await request(server()).get('/api/v1/local-groups').expect(200);
+    expect(groups.body.available).toBe(false);
+    expect(groups.body.tip).toContain('敬请期待');
+  });
 });
