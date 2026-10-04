@@ -1,9 +1,9 @@
 # P0 验收测试报告（Step 14 · PRD §10 十五条用例）
 
-- 日期：2026-10-04
+- 日期：2026-10-04（Step 15 完成后回归更新）
 - 环境：真实 MySQL 8 + Redis（podman 容器 qj-mysql/qj-redis），`MOCK_PROVIDERS=false`（DbConfigCenter + RedisKvCache），**禁 mock 数据库**
 - 命令：`pnpm --filter @qinjia/server test`（单测）、`pnpm --filter @qinjia/server test:e2e`（集成）
-- 结果总览：**e2e 12 套件 / 76 用例全部通过；单测 7/7；`pnpm -r build` 全绿**
+- 结果总览：**e2e 13 套件 / 80 用例全部通过；单测 7/7；`pnpm -r build` 全绿**
 
 ## 一、§10 十五条用例映射
 
@@ -20,12 +20,12 @@
 | 9 | FEFO：先扣快到期体验额度 | ✅ | quota-ledger.e2e › 用例 9 | 体验(剩2天)+付费(剩300天) 并存 → 先扣体验，扣完转付费 |
 | 10 | 并发 10（实测 100）解锁同一目标仅扣 1 次 | ✅ | quota-ledger.e2e › 用例 10 | remaining=1 并发 100 → 恰 1 成功；行锁（§6.1 FOR UPDATE）；无负数无超扣 |
 | 11 | 未实名：额度 frozen、解锁置灰提示话术 | ✅ | cert.e2e › 用例 11；auth.e2e | frozen=10/usable=0；实名通过后解冻 active；unlockBtnRealnameGuide 话术读配置 |
-| 12 | 被邀请人实名通过才发奖（+7天+10额度+系统消息）；未实名不发奖 | ⏸ P1 前半 ✅ | cert.e2e › 用例 12 前置；auth.e2e › 邀请码注册 | Referral 登记 PENDING、不发奖（触发点埋点正确）；**发奖逻辑属 Step 15** |
+| 12 | 被邀请人实名通过才发奖（+7天+10额度+系统消息）；未实名不发奖 | ✅ | invite.e2e › 用例 12；cert.e2e › 用例 12 | 注册仅挂 Referral PENDING 不发奖；实名通过 → REWARDED、邀请人 +7 天（过期重激活/有效期内顺延）+INVITE 批次 10 额度+quotaTxLog GRANT；系统消息标题读 copywriting 配置（I1）；同设备指纹二次校验 REJECTED 不叠加 |
 | 13 | 解锁未核验档案 → 二次风险确认后才扣费 | ✅ | unlock.e2e › 用例 13 | 412 RISK_CONFIRM_REQUIRED 不扣费；确认后 200 且 riskConfirmed 留痕 |
-| 14 | 体验到期前 2 天 / 付费到期前 7 天续费提醒+券 | ⏸ P1 | — 依赖 Step 15（提醒节点定时任务+订阅消息） | 配置项 remind_nodes/coupon_templates 已入 reward_config 并可后台编辑（admin.e2e › 配置中心） |
+| 14 | 体验到期前 2 天 / 付费到期前 7 天续费提醒+券 | ✅ | invite.e2e › 用例 14 | MemberRemindJob：TRIAL 剩 1 天 → 发「体验到期续费券」（模板名读 coupon_templates 配置）+ activity 系统消息；PAID 剩 5 天 → 提醒；剩 20 天（窗外）→ 0 打扰；RemindLog 唯一锚去重（同周期重跑不重发），续费后新到期日重新锚定可再提醒 |
 | 15 | 同身份证第二次注册 → 无新手福利 | ✅ | cert.e2e › 用例 15 | duplicateIdCard=true；第二账号实名通过但新手礼保持 frozen；idCardNoHash 唯一键属首账号 |
 
-**小结**：P0 范围 12/12 全部通过；用例 7、12（后半）、14 属 M4（Step 15/17）功能，触发点/配置/机制已就位，M4 完成后回归补齐至 15/15。
+**小结**：14/15 通过；仅用例 7（退款公式三边界）依赖 Step 17（退款工单流），实现后回归补齐至 15/15。
 
 ## 二、Step 13 Verify（随本报告复核）
 
@@ -36,14 +36,14 @@
 
 | 目标 | 实际（行） | 门槛 |
 |---|---|---|
-| order | 96.26% | ≥90 ✅ |
+| order | 94.44% | ≥90 ✅ |
 | quota | 100% | ≥90 ✅ |
 | unlock | 93.90% | ≥90 ✅ |
-| 资金三模块合并（test:e2e:money） | 96.03% | ≥90 ✅ |
-| 全局 src（e2e，排除 spec） | 92.95% | ≥80 ✅ |
+| 资金三模块合并（test:e2e:money） | 95.18% | ≥90 ✅ |
+| 全局 src（e2e，排除 spec/module/dto） | 92.15% | ≥80 ✅ |
 
 ## 四、测试资产清单
 
-- e2e（12 套件 / 76 用例）：acceptance、admin、auth、cert、chat、detail、feed、health、misc、profile、quota-ledger、unlock
+- e2e（13 套件 / 80 用例）：acceptance、admin、auth、cert、chat、detail、feed、health、invite、misc、profile、quota-ledger、unlock
 - 单测（7）：unlock-rate-limit.guard.spec（限频 429/配置驱动/按用户分桶）、db-config-center.spec（缓存/失效/缺 key 抛错）
-- 数据隔离：各套件唯一 matchNo 前缀（FM/FV/MD/MN/MP/MC/AD/AC）；acceptance 套件 afterAll 停用 AC 候选，防污染 feed 全池 total 断言
+- 数据隔离：各套件唯一 matchNo/标记前缀（FM/FV/MD/MN/MP/MC/AD/AC/IN）；acceptance 套件 afterAll 停用 AC 候选，防污染 feed 全池 total 断言

@@ -1826,6 +1826,7 @@ components:
         minAmountCent: { type: integer }
         status: { type: string, enum: [UNUSED, USED, EXPIRED] }
         expireAt: { type: string, format: date-time }
+        expireInMs: { type: integer, description: 距过期毫秒数（倒计时组件数据源；服务端读取时过期兜底 status=EXPIRED、expireInMs=0） }
 
     Referral:
       type: object

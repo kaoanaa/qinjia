@@ -690,6 +690,17 @@ model RiskEvent {
   @@index([category, createdAt])
 }
 
+/// 续费提醒去重日志（§5.11，Step 15）：同一到期周期内同 kind 仅发一次
+model RemindLog {
+  id             BigInt   @id @default(autoincrement())
+  userId         BigInt
+  kind           String // TRIAL_RENEW | PAID_RENEW
+  memberExpireAt DateTime // 锚定当期会员到期日；续费后新到期日可再次提醒
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, kind, memberExpireAt])
+}
+
 /// 后台关键操作审计（审核/退款/改配置）
 model AdminAuditLog {
   id           BigInt   @id @default(autoincrement())

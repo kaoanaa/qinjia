@@ -175,7 +175,7 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
     expect(user2?.idCardNoHash).toBeNull(); // 哈希唯一属于首个账号（三唯一）
   });
 
-  it('用例 12 前置：被邀请人实名通过 → 触发点埋点正确，Referral 保持 PENDING（发奖在 Step 15）', async () => {
+  it('用例 12：被邀请人实名通过 → 触发点埋点 + Step 15 实装发奖（Referral REWARDED，邀请人 INVITE 额度到账）', async () => {
     const inviter = await request(server()).post('/api/v1/auth/login').send({ code: `R8_${suffix}` }).expect(201);
     const inviteCode = inviter.body.user.inviteCode as string;
 
@@ -188,7 +188,10 @@ describe('实名 + 子女授权 + 解冻 (e2e)', () => {
 
     const invitee = await prisma.user.findUniqueOrThrow({ where: { openid: `mock_openid_R10_${suffix}` } });
     const referral = await prisma.referral.findUniqueOrThrow({ where: { inviteeId: invitee.id } });
-    expect(referral.rewardStatus).toBe('PENDING'); // Step 15 才发放
+    expect(referral.rewardStatus).toBe('REWARDED'); // D10：实名通过即发奖（顺延/防刷细节由 invite.e2e 覆盖）
+    const inviterUser = await prisma.user.findUniqueOrThrow({ where: { openid: `mock_openid_R8_${suffix}` } });
+    const inviteBatch = await prisma.memberQuota.findFirst({ where: { userId: inviterUser.id, source: 'INVITE' } });
+    expect(inviteBatch?.remaining).toBe(10);
     spy.mockRestore();
   });
 });

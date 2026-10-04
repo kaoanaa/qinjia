@@ -70,7 +70,13 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
       // Step 13 后台审核 → 系统消息（§5.12 审核模板）
       auditPass: { title: '档案审核通过', body: '您的档案已通过审核，正式出现在亲家推荐中啦' },
       auditReject: { title: '档案审核未通过', body: '很抱歉，您的档案未通过审核，请按提示修改后重新提交' },
+      // Step 15 邀请奖励到账 + 续费提醒节点（§5.10/§5.11，用例 12/14）
+      inviteReward: { title: '邀请奖励已到账', body: '您邀请的亲家已完成实名认证，会员时长与免费解锁次数已到账，快去看看吧' },
+      renewTrial: { title: '体验会员即将到期', body: '您的体验会员马上就要到期了，已为您送上门续费优惠券，续费后可继续解锁联系方式' },
+      renewPaid: { title: '会员即将到期', body: '您的会员还有几天就到期了，及时续费以免影响解锁和聊天；到期后已解锁的联系方式将暂停查看' },
     },
+    // Step 15 邀请页规则话术（{days}/{quota} 由服务端按 invite_reward 配置填充，红线 I1）
+    inviteRuleTip: '好友完成实名认证后，您可获得 {days} 天会员时长和 {quota} 次免费解锁；同一手机/微信号终身仅一次，多开不叠加',
   },
   // §6.6 Step 13：解锁接口限频（每分钟令牌数 + 窗口秒；具体阈值 PRD 未定，seed 默认，后台可调）
   rate_limit: { unlockPerMinute: 30, windowSeconds: 60 },
@@ -93,6 +99,8 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
     sdkAppId: 'MOCK_IM_SDK_1400000000',
     subscribeTemplates: {
       newMessage: 'MOCK_TPL_NEW_MESSAGE', // 离线新消息补达模板
+      rewardArrived: 'MOCK_TPL_REWARD_ARRIVED', // Step 15 邀请奖励到账
+      renewRemind: 'MOCK_TPL_RENEW_REMIND', // Step 15 续费提醒节点
     },
     sensitiveWords: ['转账', '汇款', '刷单', '杀猪盘'],
     // 联系方式防爬策略（§5.6）：文本走服务端正则拦截；图片走 msgAudit 鉴黄 + OCR 兜底（真实实现接入天御）

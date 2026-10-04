@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { MemberQuota, Prisma, QuotaSource, QuotaStatus, QuotaTxReason } from '@prisma/client';
+import { MemberLevel, MemberQuota, Prisma, QuotaSource, QuotaStatus, QuotaTxReason } from '@prisma/client';
 import { ConfigCenter, CONFIG_CENTER } from '../../providers/interfaces';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -132,18 +132,21 @@ export class QuotaService {
 
   /**
    * 会员时长+额度发放（D10：有效期内顺延 / 过期重新激活；D2：额度到期=会员到期日）。
-   * Step 8 支付回调、Step 15 邀请奖励复用。
+   * Step 8 支付回调、Step 15 邀请奖励复用。level 缺省 PAID（购会员）；邀请奖传 TRIAL，且只升不降。
    */
   async applyMembershipTx(
     tx: Prisma.TransactionClient,
     userId: bigint,
-    params: { days: number; quota: number; source: QuotaSource; orderId?: bigint },
+    params: { days: number; quota: number; source: QuotaSource; orderId?: bigint; level?: MemberLevel },
   ) {
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
     const now = new Date();
     const base = user.memberExpireAt && user.memberExpireAt > now ? user.memberExpireAt : now;
     const expireAt = new Date(base.getTime() + params.days * 864e5);
-    await tx.user.update({ where: { id: userId }, data: { memberLevel: 'PAID', memberExpireAt: expireAt } });
+    const rank = (l: MemberLevel) => ['NONE', 'TRIAL', 'PAID', 'INTENTION'].indexOf(l);
+    const wanted = params.level ?? MemberLevel.PAID;
+    const level = rank(user.memberLevel) > rank(wanted) ? user.memberLevel : wanted;
+    await tx.user.update({ where: { id: userId }, data: { memberLevel: level, memberExpireAt: expireAt } });
     const quota = await tx.memberQuota.create({
       data: { userId, orderId: params.orderId, source: params.source, total: params.quota, remaining: params.quota, status: QuotaStatus.ACTIVE, expireAt },
     });

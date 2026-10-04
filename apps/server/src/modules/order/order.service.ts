@@ -386,4 +386,34 @@ export class OrderService {
   private genOutTradeNo(): string {
     return `QJ${Date.now()}${randomInt(1000, 10000)}`;
   }
+
+  /**
+   * 我的优惠券（§5.11，Step 15）：面额 + 过期倒计时（expireInMs，倒计时组件数据源）。
+   * 读取时兜底：UNUSED 但已过 expireAt 的按 EXPIRED 展示（与额度 §6.4 同语义，不待清扫）。
+   */
+  async listMyCoupons(userId: bigint, status?: UserCouponStatus) {
+    if (status && !['UNUSED', 'USED', 'EXPIRED'].includes(status)) {
+      throw new BadRequestException('status 仅支持 UNUSED/USED/EXPIRED');
+    }
+    const rows = await this.prisma.userCoupon.findMany({
+      where: { userId, ...(status ? { status } : {}) },
+      include: { template: true },
+      orderBy: [{ expireAt: 'asc' }, { id: 'desc' }],
+    });
+    const now = Date.now();
+    return rows.map((c) => {
+      const expired = c.status === UserCouponStatus.UNUSED && c.expireAt.getTime() <= now;
+      const effStatus = expired ? UserCouponStatus.EXPIRED : c.status;
+      return {
+        id: c.id.toString(),
+        name: c.template.name,
+        scope: c.template.scope,
+        amountCent: c.template.amountCent,
+        minAmountCent: c.template.minAmountCent,
+        status: effStatus,
+        expireAt: c.expireAt.toISOString(),
+        expireInMs: Math.max(0, c.expireAt.getTime() - now),
+      };
+    });
+  }
 }
