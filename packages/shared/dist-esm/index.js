@@ -137,6 +137,7 @@ export const ConfigKeys = {
     TICKET_SLA: 'ticket_sla', // Step 12：工单首响 SLA（§6.5/§5.13，默认 48h，禁止代码写死）
     RATE_LIMIT: 'rate_limit', // Step 13 §6.6：解锁接口限频（Redis 令牌桶参数，禁止代码写死阈值）
     ACCOUNT_CLOSE: 'account_close', // Step 16 §5.8：注销冷静期天数（PIPL，禁止代码写死）
+    REFUND_RULES: 'refund_rules', // Step 17 §6.5/D7：退款窗口参数（7天/末30天/24h，禁止代码写死）
 };
 /** 金额单位：全站以「分」存储与计算，禁止浮点 */
 export const CURRENCY_UNIT = 'CENT';
