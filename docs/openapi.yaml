@@ -1180,7 +1180,75 @@ paths:
           description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/User" }
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: int64 }
+                  nickname: { type: string }
+                  cityOnlyVisible: { type: boolean }
+                  bigPayNotifyChild: { type: boolean }
+
+  /api/v1/settings/realname:
+    get:
+      tags: [misc]
+      summary: 实名信息回显（仅掩码，I5）
+      operationId: getRealnameSettings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  realnamePassed: { type: boolean }
+                  idCardNoMasked: { type: string, nullable: true }
+                  nameMasked: { type: string, nullable: true }
+                  certifiedAt: { type: string, format: date-time, nullable: true }
+
+  /api/v1/settings/consents:
+    get:
+      tags: [misc]
+      summary: 子女授权管理：授权记录列表（手机号掩码）
+      operationId: listConsents
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        consentId: { type: string, format: int64 }
+                        profileId: { type: string, format: int64 }
+                        matchNo: { type: string }
+                        relation: { type: string }
+                        childPhoneMasked: { type: string }
+                        statementVersion: { type: string }
+                        activeProfile: { type: boolean }
+                        createdAt: { type: string, format: date-time }
+
+  /api/v1/settings/consents/{id}:
+    delete:
+      tags: [misc]
+      summary: 撤回子女授权（PIPL：删除留痕+档案下架，重新发布需再授权）
+      operationId: revokeConsent
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: int64 } }
+      responses:
+        "200":
+          description: 已撤回
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean }
 
   /api/v1/settings/account-close:
     post:
@@ -1850,7 +1918,7 @@ components:
       type: object
       properties:
         id: { type: string, format: int64 }
-        category: { type: string, enum: [audit, expire, activity, reward, risk] }
+        category: { type: string, enum: [audit, expire, activity, reward, risk, greet] }
         title: { type: string }
         body: { type: string }
         readFlag: { type: boolean }

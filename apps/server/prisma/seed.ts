@@ -74,6 +74,8 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
       inviteReward: { title: '邀请奖励已到账', body: '您邀请的亲家已完成实名认证，会员时长与免费解锁次数已到账，快去看看吧' },
       renewTrial: { title: '体验会员即将到期', body: '您的体验会员马上就要到期了，已为您送上门续费优惠券，续费后可继续解锁联系方式' },
       renewPaid: { title: '会员即将到期', body: '您的会员还有几天就到期了，及时续费以免影响解锁和聊天；到期后已解锁的联系方式将暂停查看' },
+      // Step 16 打招呼收件箱（§5.7 P1；{nickname}/{matchNo} 由服务端填充）
+      greetCard: { title: '{nickname}（编号{matchNo}）跟您打招呼了', body: '对方对您孩子的档案感兴趣，回复消息或解锁后可进一步沟通' },
     },
     // Step 15 邀请页规则话术（{days}/{quota} 由服务端按 invite_reward 配置填充，红线 I1）
     inviteRuleTip: '好友完成实名认证后，您可获得 {days} 天会员时长和 {quota} 次免费解锁；同一手机/微信号终身仅一次，多开不叠加',
@@ -82,6 +84,8 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
   rate_limit: { unlockPerMinute: 30, windowSeconds: 60 },
   // §6.5/§5.13 Step 12：工单首响 SLA（小时，禁止代码硬编码 48）
   ticket_sla: { firstResponseHours: 48 },
+  // §5.8 Step 16：注销冷静期天数（PIPL 二次确认+冷静期，到期自动匿名化；禁止代码写死）
+  account_close: { coolingOffDays: 7 },
   // §11-10 提醒节点（§3.2/§5.11）
   remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
   // §11-11 大额支付阈值（§5.10，¥500）

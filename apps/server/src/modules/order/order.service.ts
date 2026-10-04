@@ -11,8 +11,9 @@ import { CouponScope, OrderType, PayStatus, Prisma, QuotaSource, UnlockPayType, 
 import { randomInt } from 'node:crypto';
 import { ConfigKeys } from '@qinjia/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONFIG_CENTER, ConfigCenter, WX_PAY, WxPay } from '../../providers/interfaces';
+import { CONFIG_CENTER, ConfigCenter, SMS, SmsProvider, WX_PAY, WxPay } from '../../providers/interfaces';
 import { BusinessException } from '../../common/business.exception';
+import { decryptField } from '../../common/crypto';
 import { ProfileService } from '../profile/profile.service';
 import { QuotaService } from '../quota/quota.service';
 import { UnlockService } from '../unlock/unlock.service';
@@ -57,6 +58,7 @@ export class OrderService {
     private readonly quota: QuotaService,
     @Inject(CONFIG_CENTER) private readonly config: ConfigCenter,
     @Inject(WX_PAY) private readonly wxpay: WxPay,
+    @Inject(SMS) private readonly sms: SmsProvider,
     @Inject(forwardRef(() => UnlockService)) private readonly unlock: UnlockService,
   ) {}
 
@@ -166,7 +168,33 @@ export class OrderService {
       }
     });
     this.logger.log(`订单完成 outTradeNo=${outTradeNo} fulfilled=${fulfilled}`);
+    if (fulfilled) await this.notifyChildOnBigPay(order.userId, order.amountCent);
     return { handled: true, idempotent: !fulfilled };
+  }
+
+  /**
+   * 子女协助管理（§5.8/老年人保护，Step 16）：开启后单笔 ≥ big_pay_threshold（分，读配置 I1）
+   * 短信通知子女手机（consent_record 解密，I5）。旁路：失败不阻断履约。
+   */
+  private async notifyChildOnBigPay(userId: bigint, amountCent: number) {
+    try {
+      const [user, cfg] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: userId }, select: { bigPayNotifyChild: true } }),
+        this.config.get<{ amountCent: number }>(ConfigKeys.BIG_PAY_THRESHOLD),
+      ]);
+      if (!user?.bigPayNotifyChild || amountCent < cfg.amountCent) return;
+      const profiles = await this.prisma.profile.findMany({ where: { ownerUserId: userId }, select: { id: true } });
+      const consents = await this.prisma.consentRecord.findMany({ where: { profileId: { in: profiles.map((p) => p.id) } } });
+      for (const c of consents) {
+        try {
+          await this.sms.sendCode(decryptField(c.childPhone), 'big_pay_confirm');
+        } catch (e) {
+          this.logger.warn(`大额支付子女通知失败 consentId=${c.id}: ${(e as Error).message}`);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`大额支付子女通知异常: ${(e as Error).message}`);
+    }
   }
 
   async getOrder(userId: bigint, orderId: bigint) {

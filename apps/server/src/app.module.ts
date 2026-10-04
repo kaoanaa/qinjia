@@ -13,6 +13,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { MiscModule } from './modules/misc/misc.module';
 import { OrderModule } from './modules/order/order.module';
 import { InviteModule } from './modules/invite/invite.module';
+import { WallModule } from './modules/wall/wall.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -44,6 +45,7 @@ import { ProvidersModule } from './providers/providers.module';
     ChatModule,
     MiscModule,
     InviteModule,
+    WallModule,
     AdminModule,
   ],
 })

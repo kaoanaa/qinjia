@@ -5,6 +5,7 @@ import { randomInt } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImProvider, IM, WechatAuth, WECHAT_AUTH } from '../../providers/interfaces';
 import { QuotaService } from '../quota/quota.service';
+import { BusinessException } from '../../common/business.exception';
 
 const INVITE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // 去易混淆字符
 
@@ -32,6 +33,7 @@ export class AuthService {
           data: { deviceFingerprint: dto.deviceFingerprint },
         });
       }
+      if (existing.status === 'CLOSED') throw new BusinessException(403, 'ACCOUNT_CLOSED', '该账号已注销');
       return { token: await this.sign(existing), isNewUser: false, user: await this.toView(existing) };
     }
 

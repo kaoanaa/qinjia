@@ -191,7 +191,7 @@ export class FeedService {
     return { favorited: true };
   }
 
-  /** 打招呼免费破冰（P0 仅系统卡片占位，收件箱 P1/Step 16；不建立聊天权限） */
+  /** 打招呼免费破冰（P0 系统卡片占位 + P1 收件箱落库，§5.7；不建立聊天权限） */
   async greet(userId: bigint, profileId: bigint) {
     const target = await this.mustPublicProfileById(profileId);
     if (target.ownerUserId === userId) throw new BusinessException(400, 'SELF_NOT_ALLOWED', '不能给自己打招呼');
@@ -202,6 +202,16 @@ export class FeedService {
     void this.im
       .sendSystemMsg(String(target.ownerUserId), JSON.stringify({ kind: 'greet_card', matchNo: my.matchNo, nickname: me.nickname }))
       .catch((e: Error) => this.logger.warn(`打招呼系统卡片失败: ${e.message}`));
+
+    // 打招呼收件箱（§5.7 P1）：文案读 copywriting.notifyTemplates.greetCard（红线 I1），占位符填充
+    const copy = await this.config.get<{ notifyTemplates?: Record<string, { title: string; body: string }> }>(ConfigKeys.COPYWRITING);
+    const tpl = copy.notifyTemplates?.greetCard;
+    if (tpl) {
+      const fill = (s: string) => s.split('{nickname}').join(me.nickname).split('{matchNo}').join(my.matchNo);
+      await this.prisma.systemNotification
+        .create({ data: { userId: target.ownerUserId, category: 'greet', title: fill(tpl.title), body: fill(tpl.body) } })
+        .catch((e: Error) => this.logger.warn(`打招呼收件箱落库失败: ${e.message}`));
+    }
 
     const key = `greet:${userId}:${this.todayDate().toISOString().slice(0, 10)}`;
     const count = Number((await this.cache.get(key)) ?? '0') + 1;

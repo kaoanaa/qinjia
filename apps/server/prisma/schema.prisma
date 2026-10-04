@@ -203,6 +203,7 @@ enum NotificationCategory {
   activity
   reward
   risk
+  greet // 打招呼收件箱（§5.7 P1，Step 16）
 }
 
 enum ManagerLeadStatus {
@@ -239,6 +240,7 @@ model User {
   bigPayNotifyChild   Boolean @default(false) // 子女协助管理开关（§5.10）
   cityOnlyVisible     Boolean @default(false) // 仅同城可见（§5.8）
   status        UserStatus  @default(ACTIVE)
+  closeScheduledAt DateTime? // 注销冷静期截止（§5.8 PIPL，Step 16；到期匿名化）
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
