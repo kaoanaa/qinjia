@@ -7,7 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CouponScope, OrderType, PayStatus, Prisma, QuotaSource, UnlockPayType, UserCouponStatus } from '@prisma/client';
+import { ContactAction, CouponScope, Order, OrderType, PayStatus, Prisma, QuotaSource, QuotaStatus, QuotaTxReason, RefundStatus, TicketType, UnlockPayType, UnlockStatus, UserCouponStatus } from '@prisma/client';
 import { randomInt } from 'node:crypto';
 import { ConfigKeys } from '@qinjia/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -33,6 +33,21 @@ interface MemberPlanCfg {
   days: number;
   quota: number;
   amountCent: number;
+}
+
+/** §6.5 退款试算结果（公式逐项留痕，用例 7 断言数据源） */
+export interface RefundEstimate {
+  refundAmountCent: number;
+  quotaReturned: boolean;
+  rule: 'FREE_NO_REFUND' | 'FULL_ZERO_CONSUME' | 'PARTIAL_CONSUME_DEDUCT' | 'LAST_DAYS_NO_REFUND' | 'VIOLATION_FULL_REFUND' | 'CONTACT_NO_REFUND' | 'EXPIRED_NO_REFUND' | 'NOT_REFUNDABLE' | 'NO_UNLOCK';
+  calcDetail: Record<string, unknown>;
+  rejectReason?: string;
+}
+
+interface RefundRulesCfg {
+  memberRefundWindowDays: number;
+  noRefundLastDays: number;
+  unlockViolationRefundWindowHours: number;
 }
 
 export interface ReconcileReport {
@@ -252,7 +267,7 @@ export class OrderService {
     const payable = plan.amountCent - deduct;
     const outTradeNo = this.genOutTradeNo();
     if (payable === 0) {
-      await this.prisma.$transaction(async (tx) => {
+      const zeroOrderId = await this.prisma.$transaction(async (tx) => {
         const order = await tx.order.create({
           data: {
             userId, type: OrderType.MEMBER, bizRef: planId, amountCent: plan.amountCent,
@@ -263,8 +278,9 @@ export class OrderService {
         await this.reserveCouponTx(tx, coupon, order.id);
         await this.quota.applyMembershipTx(tx, userId, { days: plan.days, quota: plan.quota, source: QuotaSource.PAID, orderId: order.id });
         await tx.order.update({ where: { id: order.id }, data: { quotaGranted: true } });
+        return order.id;
       });
-      return { orderId: '', outTradeNo, amountCent: 0, couponDeductCent: deduct, confirmRequired: false, paySignParams: {} };
+      return { orderId: zeroOrderId.toString(), outTradeNo, amountCent: 0, couponDeductCent: deduct, confirmRequired: false, paySignParams: {} };
     }
     return this.jsapiPrepay(userId, {
       type: OrderType.MEMBER, bizRef: planId, amountCent: plan.amountCent,
@@ -404,6 +420,173 @@ export class OrderService {
     const amountRaw = [...cols].reverse().find((c) => /^-?\d+(\.\d+)?$/.test(c));
     const amountCent = amountRaw ? Math.round(parseFloat(amountRaw) * 100) : 0;
     return { outTradeNo, amountCent };
+  }
+
+  // ==================== 退款（D7/§6.5，Step 17） ====================
+
+  /**
+   * §6.5 公式试算（服务端唯一裁决源，红线 I3 精神：金额判定只在服务端）：
+   * 会员：窗口内 0 消耗全退；已消耗=实付−消耗次数×单次挂牌价−期内已发券面额（下限 0）；期末 N 天不退；0 元赠送不退。
+   * 单次解锁：仅 24h（配置）内对方违规下架/举报属实 → 全退+返额度；已交换微信/已拨电话不退；过期不退。
+   */
+  async estimateRefund(order: Order): Promise<RefundEstimate> {
+    const cfg = await this.config.get<RefundRulesCfg>(ConfigKeys.REFUND_RULES);
+    const paidActual = order.amountCent - order.couponDeductCent;
+    const base: Record<string, unknown> = { orderType: order.type, listPriceCent: order.amountCent, couponDeductCent: order.couponDeductCent, actualPaidCent: paidActual };
+    if (paidActual <= 0) return { refundAmountCent: 0, quotaReturned: false, rule: 'FREE_NO_REFUND', calcDetail: base, rejectReason: '0 元/赠送权益不涉及退款' };
+
+    if (order.type === OrderType.MEMBER) {
+      const plan = await this.memberPlan(order.bizRef ?? '');
+      const agg = await this.prisma.memberQuota.aggregate({ where: { orderId: order.id }, _sum: { used: true } });
+      const consumedCount = agg._sum.used ?? 0;
+      // 期内已发券面额：本订单会员期内派发的权益券（续费/邀请等，source 非本单抵扣券；本单抵扣已体现在实付）
+      const issued = await this.prisma.userCoupon.findMany({
+        where: { userId: order.userId, orderId: null, createdAt: { gte: order.paidAt ?? order.createdAt } },
+        include: { template: true },
+      });
+      const issuedCouponCent = issued.reduce((s, c) => s + c.template.amountCent, 0);
+      const paidAt = (order.paidAt ?? order.createdAt).getTime();
+      const expireAt = paidAt + plan.days * 864e5;
+      const now = Date.now();
+      const inWindow = now - paidAt <= cfg.memberRefundWindowDays * 864e5;
+      const lastDaysBlocked = expireAt - now <= cfg.noRefundLastDays * 864e5;
+      const calc = { ...base, planDays: plan.days, consumedCount, issuedCouponCent, inWindow, lastDaysBlocked, windowDays: cfg.memberRefundWindowDays, noRefundLastDays: cfg.noRefundLastDays };
+      // 优先级：7天内0消耗全退 > 末30天拒退 > 部分消耗折抵（否则30天套餐购买当天即被"末30天"误拦）
+      if (inWindow && consumedCount === 0) return { refundAmountCent: paidActual, quotaReturned: false, rule: 'FULL_ZERO_CONSUME', calcDetail: calc };
+      if (lastDaysBlocked) return { refundAmountCent: 0, quotaReturned: false, rule: 'LAST_DAYS_NO_REFUND', calcDetail: calc, rejectReason: `会员期最后 ${cfg.noRefundLastDays} 天不退（法定除外）` };
+      const oncePrice = await this.oncePriceCent();
+      const amount = Math.max(0, paidActual - consumedCount * oncePrice - issuedCouponCent);
+      return {
+        refundAmountCent: amount, quotaReturned: false, rule: 'PARTIAL_CONSUME_DEDUCT',
+        calcDetail: { ...calc, oncePriceCent: oncePrice, deductedCent: consumedCount * oncePrice + issuedCouponCent },
+        ...(amount === 0 ? { rejectReason: '已消耗折抵后无可退金额' } : {}),
+      };
+    }
+
+    const rec = await this.prisma.unlockRecord.findFirst({ where: { orderId: order.id } });
+    if (!rec) return { refundAmountCent: 0, quotaReturned: false, rule: 'NO_UNLOCK', calcDetail: base, rejectReason: '未找到解锁记录' };
+    const conv = await this.prisma.conversation.findFirst({ where: { unlockRecordId: rec.id }, select: { id: true } });
+    const contact = conv
+      ? await this.prisma.contactActionLog.findFirst({ where: { convId: conv.id, action: { in: [ContactAction.EXCHANGE_WECHAT, ContactAction.CALL_PHONE] } }, select: { action: true } })
+      : null;
+    if (contact) return { refundAmountCent: 0, quotaReturned: false, rule: 'CONTACT_NO_REFUND', calcDetail: { ...base, contactAction: contact.action }, rejectReason: '已交换微信或已拨打电话不退' };
+    if (rec.status === UnlockStatus.EXPIRED || rec.expireAt.getTime() <= Date.now()) {
+      return { refundAmountCent: 0, quotaReturned: false, rule: 'EXPIRED_NO_REFUND', calcDetail: base, rejectReason: '过期解锁不退' };
+    }
+    const target = await this.prisma.profile.findUniqueOrThrow({ where: { id: rec.targetProfileId }, select: { auditStatus: true, isActive: true, updatedAt: true } });
+    const removedForViolation = target.auditStatus !== 'APPROVED' || !target.isActive;
+    // 「24h 内对方违规下架」：下架动作发生在解锁后 window 小时内
+    const withinWindow = removedForViolation && target.updatedAt.getTime() >= rec.createdAt.getTime()
+      ? target.updatedAt.getTime() - rec.createdAt.getTime() <= cfg.unlockViolationRefundWindowHours * 36e5
+      : false;
+    if (removedForViolation && withinWindow) {
+      return { refundAmountCent: paidActual, quotaReturned: true, rule: 'VIOLATION_FULL_REFUND', calcDetail: { ...base, removedForViolation, withinWindow, windowHours: cfg.unlockViolationRefundWindowHours } };
+    }
+    return {
+      refundAmountCent: 0, quotaReturned: false, rule: 'NOT_REFUNDABLE',
+      calcDetail: { ...base, removedForViolation, withinWindow },
+      rejectReason: `单次解锁仅对方违规下架 ${cfg.unlockViolationRefundWindowHours}h 内可全退`,
+    };
+  }
+
+  /** 用户发起退款申请（POST /orders/:id/refund-request）：可退性服务端把关 → REQUESTED + REFUND 工单（SLA 读配置） */
+  async requestRefund(userId: bigint, orderId: bigint, reason: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || order.userId !== userId) throw new NotFoundException('订单不存在');
+    if (order.payStatus !== PayStatus.PAID) throw new BusinessException(HttpStatus.BAD_REQUEST, 'ORDER_NOT_PAID', '仅已支付订单可申请退款');
+    if (order.refundStatus !== RefundStatus.NONE) {
+      throw new BusinessException(HttpStatus.CONFLICT, 'REFUND_ALREADY_REQUESTED', `订单退款状态为 ${order.refundStatus}，勿重复提交`);
+    }
+    const est = await this.estimateRefund(order);
+    if (est.refundAmountCent <= 0) {
+      throw new BusinessException(HttpStatus.BAD_REQUEST, 'REFUND_NOT_ELIGIBLE', est.rejectReason ?? '该订单不符合退款规则');
+    }
+    const sla = await this.config.get<{ firstResponseHours: number }>(ConfigKeys.TICKET_SLA);
+    const ticket = await this.prisma.$transaction(async (tx) => {
+      const gate = await tx.order.updateMany({ where: { id: order.id, refundStatus: RefundStatus.NONE }, data: { refundStatus: RefundStatus.REQUESTED, refundReason: reason } });
+      if (gate.count !== 1) throw new BusinessException(HttpStatus.CONFLICT, 'REFUND_ALREADY_REQUESTED', '勿重复提交退款申请');
+      return tx.ticket.create({
+        data: { userId, type: TicketType.REFUND, content: `退款申请｜订单 ${order.id}｜原因：${reason}`, status: 'OPEN', slaDeadline: new Date(Date.now() + sla.firstResponseHours * 36e5) },
+      });
+    });
+    this.logger.log(`退款申请 order=${order.id} ticket=${ticket.id} 试算=${est.refundAmountCent}`);
+    return { orderId: order.id.toString(), ticketId: ticket.id.toString(), estimatedRefundCent: est.refundAmountCent };
+  }
+
+  /** 后台裁决执行（AdminService 调）：驳回→REJECTED；核准→原路退回 + 反履约 + 关工单 + 系统消息 */
+  async adjudicateRefund(orderId: bigint, approved: boolean, reason?: string) {
+    const order = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    if (order.refundStatus !== RefundStatus.REQUESTED) {
+      throw new BusinessException(HttpStatus.BAD_REQUEST, 'REFUND_STATE_INVALID', '订单不在待退款裁决状态');
+    }
+    if (!approved) {
+      await this.prisma.order.update({ where: { id: orderId }, data: { refundStatus: RefundStatus.REJECTED, refundReason: reason ?? '客服裁决驳回' } });
+      await this.closeRefundTickets(order, '退款申请已驳回', undefined);
+      await this.notifyRefund(order.userId, '退款申请已驳回', reason ?? null);
+      return { refundStatus: RefundStatus.REJECTED, refundAmountCent: 0, quotaReturned: false, rule: null as string | null, calcDetail: { decision: 'REJECTED', reason: reason ?? null } };
+    }
+    const est = await this.estimateRefund(order);
+    if (est.refundAmountCent <= 0) {
+      await this.prisma.order.update({ where: { id: orderId }, data: { refundStatus: RefundStatus.REJECTED, refundReason: est.rejectReason ?? '试算无可退金额' } });
+      await this.closeRefundTickets(order, est.rejectReason ?? '试算无可退金额', undefined);
+      await this.notifyRefund(order.userId, '退款申请已驳回', est.rejectReason ?? null);
+      return { refundStatus: RefundStatus.REJECTED, refundAmountCent: 0, quotaReturned: false, rule: est.rule, calcDetail: est.calcDetail };
+    }
+    const refundNo = `RF${order.id}_${Date.now()}`;
+    const res = await this.wxpay.refund({ outTradeNo: order.outTradeNo, outRefundNo: refundNo, amountCent: est.refundAmountCent, totalCent: order.amountCent - order.couponDeductCent });
+    const finalStatus = res.status === 'SUCCESS' ? RefundStatus.REFUNDED : RefundStatus.REFUNDING;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (order.type === OrderType.MEMBER) {
+        const plan = await this.memberPlan(order.bizRef ?? '');
+        const quotas = await tx.memberQuota.findMany({ where: { orderId: order.id, remaining: { gt: 0 } } });
+        for (const q of quotas) {
+          await tx.memberQuota.update({ where: { id: q.id }, data: { remaining: 0, status: QuotaStatus.EXPIRED } });
+          await tx.quotaTxLog.create({ data: { userId: order.userId, quotaId: q.id, reason: QuotaTxReason.ZERO_OUT, change: -q.remaining, refType: 'refund', refId: order.id } });
+        }
+        const u = await tx.user.findUniqueOrThrow({ where: { id: order.userId }, select: { memberExpireAt: true } });
+        if (u.memberExpireAt) {
+          await tx.user.update({ where: { id: order.userId }, data: { memberExpireAt: new Date(Math.max(Date.now(), u.memberExpireAt.getTime() - plan.days * 864e5)) } });
+        }
+      } else {
+        const rec = await tx.unlockRecord.findFirst({ where: { orderId: order.id, status: UnlockStatus.ACTIVE } });
+        if (rec) {
+          await tx.unlockRecord.update({ where: { id: rec.id }, data: { status: UnlockStatus.REFUNDED } }); // 会话发消息权限由服务端回调按解锁状态裁决（§5.6）
+          if (est.quotaReturned) {
+            await this.quota.grantBatch(tx, { userId: order.userId, source: QuotaSource.PAID, count: 1, days: await this.unlockDays(), orderId: order.id });
+          }
+        }
+      }
+      await tx.order.update({ where: { id: order.id }, data: { refundStatus: finalStatus, refundNo: res.refundId, refundAmountCent: est.refundAmountCent } });
+    });
+    await this.closeRefundTickets(order, `退款 ${est.refundAmountCent} 分（${res.status === 'SUCCESS' ? '已退回' : '退款中'}）`, est);
+    await this.notifyRefund(order.userId, '退款裁决结果', reason ?? null);
+    this.logger.log(`退款裁决 order=${order.id} amount=${est.refundAmountCent} status=${finalStatus} rule=${est.rule}`);
+    return { refundStatus: finalStatus, refundAmountCent: est.refundAmountCent, quotaReturned: est.quotaReturned, rule: est.rule, calcDetail: est.calcDetail };
+  }
+
+  /** 违规下架自动退款（§6.5-2，auditProfile REJECT 旁路调用）：付费单次解锁在窗口内 → 直接按规则全退+返额度 */
+  async autoRefundViolationUnlock(orderId: bigint) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || order.type !== OrderType.UNLOCK_ONCE || order.refundStatus !== RefundStatus.NONE) return null;
+    const est = await this.estimateRefund(order);
+    if (est.rule !== 'VIOLATION_FULL_REFUND') return null;
+    await this.prisma.order.update({ where: { id: order.id }, data: { refundStatus: RefundStatus.REQUESTED, refundReason: '对方违规下架自动退款' } });
+    return this.adjudicateRefund(order.id, true, '对方违规下架，系统自动全额退款并返还额度');
+  }
+
+  private async closeRefundTickets(order: Order, note: string, _est?: RefundEstimate) {
+    await this.prisma.ticket.updateMany({
+      where: { userId: order.userId, type: TicketType.REFUND, status: { not: 'CLOSED' }, content: { contains: `订单 ${order.id}` } },
+      data: { status: 'CLOSED', handlerNote: note },
+    });
+  }
+
+  private async notifyRefund(userId: bigint, title: string, detail: string | null) {
+    const copy = await this.config.get<{ refundRulesTip?: string }>(ConfigKeys.COPYWRITING);
+    const body = [detail, copy?.refundRulesTip].filter(Boolean).join('；');
+    if (!body) return;
+    await this.prisma.systemNotification.create({ data: { userId, category: 'reward', title, body } });
   }
 
   private yesterdayYmd(): string {

@@ -5,6 +5,7 @@ import { WX_PAY, WxPay } from '../../providers/interfaces';
 import { CurrentUserId } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { RefundRequestDto } from './dto/refund-request.dto';
 import { OrderService } from './order.service';
 
 @Controller('orders')
@@ -43,5 +44,13 @@ export class OrderController {
   get(@CurrentUserId() userId: bigint, @Param('orderId') orderId: string) {
     if (!/^\d+$/.test(orderId)) throw new NotFoundException('订单不存在');
     return this.orders.getOrder(userId, BigInt(orderId));
+  }
+
+  /** 退款申请（§6.5，Step 17）：服务端可退性把关 + REFUND 工单 */
+  @Post(':orderId/refund-request')
+  @UseGuards(JwtAuthGuard)
+  refundRequest(@CurrentUserId() userId: bigint, @Param('orderId') orderId: string, @Body() dto: RefundRequestDto) {
+    if (!/^\d+$/.test(orderId)) throw new NotFoundException('订单不存在');
+    return this.orders.requestRefund(userId, BigInt(orderId), dto.reason);
   }
 }

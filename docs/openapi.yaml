@@ -872,6 +872,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Order" }
 
+  /api/v1/orders/{orderId}/refund-request:
+    post:
+      tags: [member]
+      summary: |
+        用户发起退款申请（§6.5）：校验订单可退性（会员单：已支付未退；单次解锁单：24h 内违规下架可全退+返额度，
+        已交换微信/已拨打电话/已过期不退）→ 订单 refundStatus=REQUESTED + 建 REFUND 工单（SLA 48h 首响）。
+        最终金额由后台裁决（/admin/v1/orders/{orderId}/refund）按公式执行原路退回。
+      operationId: createRefundRequest
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        "201":
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId: { type: string, format: int64 }
+                  ticketId: { type: string, format: int64 }
+                  estimatedRefundCent: { type: integer, description: 试算金额（§6.5 公式，下限 0） }
+
   /api/v1/orders/callback/wxpay:
     post:
       tags: [member]
@@ -1430,6 +1460,69 @@ paths:
                   refundAmountCent: { type: integer }
                   calcDetail: { type: object, description: 公式逐项（用例 7） }
                   quotaReturned: { type: boolean }
+                  refundStatus: { type: string, enum: [REFUNDED, REFUNDING, REJECTED] }
+                  rule: { type: string, nullable: true, description: 命中的退款规则（FULL_ZERO_CONSUME/PARTIAL_CONSUME_DEDUCT/VIOLATION_FULL_REFUND 等；未及试算即驳回时为 null） }
+
+  /admin/v1/manager-leads:
+    get:
+      tags: [admin]
+      summary: 管家留资列表（NEW/ASSIGNED/FOLLOWING/DONE，D6）
+      operationId: adminListManagerLeads
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [NEW, ASSIGNED, FOLLOWING, DONE] } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/manager-leads/{leadId}/assign:
+    post:
+      tags: [admin]
+      summary: |
+        派单给管家（managerId=后台管理员）：状态 NEW→ASSIGNED；复用 IM 由管家向用户发起 1v1 会话
+        （accountImport 保证双方账号存在，conversationCreate + 系统欢迎语读 copywriting 配置），回写 convId。
+      operationId: adminAssignManagerLead
+      parameters:
+        - { name: leadId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [managerId]
+              properties:
+                managerId: { type: string, format: int64 }
+      responses:
+        "200":
+          description: 已派单并发起会话
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leadId: { type: string, format: int64 }
+                  status: { type: string }
+                  convId: { type: string }
+        "409":
+          description: 该用户已有跟进中的留资（一人一条约束）
+
+  /admin/v1/manager-leads/{leadId}/status:
+    put:
+      tags: [admin]
+      summary: 留资状态流转（ASSIGNED→FOLLOWING→DONE，结案）
+      operationId: adminUpdateManagerLeadStatus
+      parameters:
+        - { name: leadId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [FOLLOWING, DONE] }
+      responses:
+        "200": { description: OK }
 
   /admin/v1/config:
     get:

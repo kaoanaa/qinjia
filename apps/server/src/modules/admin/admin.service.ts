@@ -1,9 +1,9 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { AdminUser, AuditStatus, CertResult, CertType, PayStatus, Prisma, RefundStatus } from '@prisma/client';
+import { AdminUser, AuditStatus, CertResult, CertType, ManagerLeadStatus, PayStatus, Prisma, RefundStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { ConfigKeys } from '@qinjia/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONFIG_CENTER, ConfigCenter } from '../../providers/interfaces';
+import { CONFIG_CENTER, ConfigCenter, IM, ImProvider } from '../../providers/interfaces';
 import { AdminContext } from './admin-auth';
 import { MiscService } from '../misc/misc.service';
 import { UnlockService } from '../unlock/unlock.service';
@@ -20,6 +20,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CONFIG_CENTER) private readonly config: ConfigCenter,
+    @Inject(IM) private readonly im: ImProvider,
     private readonly misc: MiscService,
     private readonly unlock: UnlockService,
     private readonly order: OrderService,
@@ -67,11 +68,12 @@ export class AdminService {
         where: { id: profileId },
         data: { auditStatus: 'REJECTED', rejectReason: dto.reason ?? '内容不符合规范', isActive: false, publishedAt: null },
       });
-      // §6.1 违规下架：该档案的 active 解锁 → Refunded（额度解锁返还 remaining+1）
-      const active = await this.prisma.unlockRecord.findMany({ where: { targetProfileId: profileId, status: 'ACTIVE' }, select: { id: true } });
+      // §6.1 违规下架：该档案的 active 解锁 → Refunded（额度解锁返还 remaining+1）；付费单次解锁走 §6.5-2 原路自动退款
+      const active = await this.prisma.unlockRecord.findMany({ where: { targetProfileId: profileId, status: 'ACTIVE' }, select: { id: true, orderId: true } });
       for (const rec of active) {
         await this.unlock.refundQuotaUnlock(rec.id);
         refundedUnlocks.push(rec.id.toString());
+        if (rec.orderId) await this.order.autoRefundViolationUnlock(rec.orderId);
       }
       await this.misc.notifyByTemplate(profile.ownerUserId, 'audit', 'auditReject');
     }
@@ -310,6 +312,81 @@ export class AdminService {
     if (dto.handlerNote) {
       await this.misc.notify(ticket.userId, 'activity', '工单有新回复', dto.handlerNote);
     }
+    return { id: row.id.toString(), status: row.status };
+  }
+
+  /** 退款裁决（§6.5/D7）：核准→原路退回+反履约；驳回→REJECTED。公式试算明细透传（用例 7） */
+  async refundOrder(admin: AdminContext, orderId: bigint, dto: { approved: boolean; reason?: string }) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('订单不存在');
+    const result = await this.order.adjudicateRefund(orderId, dto.approved, dto.reason);
+    await this.audit(admin, dto.approved ? 'order_refund_approve' : 'order_refund_reject', 'order', orderId, { refundStatus: order.refundStatus }, { refundStatus: String(result.refundStatus), amountCent: result.refundAmountCent, reason: dto.reason ?? null });
+    return { refundAmountCent: result.refundAmountCent, calcDetail: result.calcDetail, quotaReturned: result.quotaReturned, refundStatus: String(result.refundStatus), rule: result.rule };
+  }
+
+  // ==================== 管家留资与派单（§5.12/D6，Step 17） ====================
+
+  async listManagerLeads(status: string | undefined, page: number, size: number) {
+    const where: Prisma.ManagerLeadWhereInput = status ? { status: status as ManagerLeadStatus } : {};
+    const [total, rows] = await Promise.all([
+      this.prisma.managerLead.count({ where }),
+      this.prisma.managerLead.findMany({
+        where,
+        include: { user: { select: { nickname: true, phone: true } }, assignedManager: { select: { username: true } } },
+        // NEW 优先按提单时间升序派单（先到先服务），其余按最近更新
+        orderBy: status ? [{ updatedAt: 'desc' as const }] : [{ status: 'asc' as const }, { createdAt: 'asc' as const }],
+        skip: (page - 1) * size,
+        take: size,
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((l) => ({
+        id: l.id.toString(),
+        userId: l.userId.toString(),
+        nickname: l.user.nickname,
+        phoneMasked: l.user.phone ? `${l.user.phone.slice(0, 3)}****${l.user.phone.slice(7)}` : null,
+        city: l.city,
+        expectation: l.expectation,
+        budgetCent: l.budgetCent,
+        status: l.status,
+        managerUsername: l.assignedManager?.username ?? null,
+        convId: l.convId,
+        createdAt: l.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /** 派单：复用 IM（§3.4 模式）管家账号导入→加好友→系统欢迎语（话术读配置 I1）→回写 convId+ASSIGNED */
+  async assignManagerLead(admin: AdminContext, leadId: bigint, managerId: bigint) {
+    const lead = await this.prisma.managerLead.findUnique({ where: { id: leadId } });
+    if (!lead) throw new NotFoundException('留资不存在');
+    if (lead.status === ManagerLeadStatus.DONE) throw new ConflictException('该留资已结案，不能重复派单');
+    const manager = await this.prisma.adminUser.findFirst({ where: { id: managerId, enabled: true } });
+    if (!manager) throw new BadRequestException('管家账号不存在或已停用');
+
+    const managerImId = `manager_${manager.id}`;
+    await this.im.accountImport(managerImId, `脱单管家-${manager.username}`);
+    await this.im.addFriend(managerImId, lead.userId.toString());
+    const copy = await this.config.get<{ managerWelcomeTip?: string }>(ConfigKeys.COPYWRITING);
+    if (copy?.managerWelcomeTip) await this.im.sendSystemMsg(lead.userId.toString(), copy.managerWelcomeTip);
+    const convId = `manager_${manager.id}_${lead.userId}`; // 真实实现取 IM create_conversation 返回的 conversationid
+
+    const updated = await this.prisma.managerLead.update({
+      where: { id: leadId },
+      data: { assignedManagerId: manager.id, convId, status: ManagerLeadStatus.ASSIGNED },
+    });
+    await this.audit(admin, 'manager_lead_assign', 'manager_lead', leadId, { status: lead.status, managerId: null }, { status: updated.status, managerId: manager.id.toString() });
+    await this.misc.notifyByTemplate(lead.userId, 'activity', 'managerAssigned');
+    return { leadId: updated.id.toString(), status: updated.status, convId };
+  }
+
+  async updateManagerLeadStatus(admin: AdminContext, leadId: bigint, status: string) {
+    if (!['FOLLOWING', 'DONE'].includes(status)) throw new BadRequestException('状态非法');
+    const lead = await this.prisma.managerLead.findUnique({ where: { id: leadId } });
+    if (!lead) throw new NotFoundException('留资不存在');
+    const row = await this.prisma.managerLead.update({ where: { id: leadId }, data: { status: status as ManagerLeadStatus } });
+    await this.audit(admin, 'manager_lead_status', 'manager_lead', leadId, { status: lead.status }, { status: row.status });
     return { id: row.id.toString(), status: row.status };
   }
 

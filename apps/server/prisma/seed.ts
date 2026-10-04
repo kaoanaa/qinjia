@@ -76,7 +76,11 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
       renewPaid: { title: '会员即将到期', body: '您的会员还有几天就到期了，及时续费以免影响解锁和聊天；到期后已解锁的联系方式将暂停查看' },
       // Step 16 打招呼收件箱（§5.7 P1；{nickname}/{matchNo} 由服务端填充）
       greetCard: { title: '{nickname}（编号{matchNo}）跟您打招呼了', body: '对方对您孩子的档案感兴趣，回复消息或解锁后可进一步沟通' },
+      // Step 17 §5.12/D6 管家派单 → 消息中心 + IM 系统欢迎语
+      managerAssigned: { title: '专属管家已上线', body: '您的加速脱单需求已受理，管家将通过站内消息与您 1v1 沟通，请留意消息提醒' },
     },
+    managerWelcomeTip: '您好，我是您的专属脱单管家，已收到您的服务需求，接下来由我为您提供 1v1 介绍服务',
+    refundRulesTip: '退款将按平台规则核算，原路退回预计 3-7 个工作日到账',
     // Step 15 邀请页规则话术（{days}/{quota} 由服务端按 invite_reward 配置填充，红线 I1）
     inviteRuleTip: '好友完成实名认证后，您可获得 {days} 天会员时长和 {quota} 次免费解锁；同一手机/微信号终身仅一次，多开不叠加',
   },
@@ -86,6 +90,8 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
   ticket_sla: { firstResponseHours: 48 },
   // §5.8 Step 16：注销冷静期天数（PIPL 二次确认+冷静期，到期自动匿名化；禁止代码写死）
   account_close: { coolingOffDays: 7 },
+  // §6.5/D7 Step 17：退款窗口参数（会员 7 天 0 消耗全退 / 会员期末 30 天不退 / 单次解锁违规退窗口 24h）
+  refund_rules: { memberRefundWindowDays: 7, noRefundLastDays: 30, unlockViolationRefundWindowHours: 24 },
   // §11-10 提醒节点（§3.2/§5.11）
   remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
   // §11-11 大额支付阈值（§5.10，¥500）

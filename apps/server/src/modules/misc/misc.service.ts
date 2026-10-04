@@ -341,6 +341,23 @@ export class MiscService {
     if (due.length) this.logger.log(`注销匿名化 ${due.length} 个账号`);
     return due.length;
   }
+
+  // ==================== 加速脱单管家留资（§5.12/D6，Step 17） ====================
+
+  /** 一人一条（schema @@unique([userId])）：已有记录则更新诉求，重复提交幂等 */
+  async createManagerLead(userId: bigint, dto: { city: string; expectation: string; budgetCent?: number }) {
+    const done = await this.prisma.managerLead.findUnique({ where: { userId } });
+    if (done?.status === 'DONE') throw new BusinessException(400, 'LEAD_DONE', '您已有完成的管家服务，如需再次服务请联系客服');
+    const lead = done
+      ? await this.prisma.managerLead.update({
+          where: { userId },
+          data: { city: dto.city, expectation: dto.expectation, budgetCent: dto.budgetCent ?? null },
+        })
+      : await this.prisma.managerLead.create({
+          data: { userId, city: dto.city, expectation: dto.expectation, budgetCent: dto.budgetCent ?? null },
+        });
+    return { leadId: lead.id.toString(), status: lead.status };
+  }
 }
 
 function maskNickname(n: string): string {

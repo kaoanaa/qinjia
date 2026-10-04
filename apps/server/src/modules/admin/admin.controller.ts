@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AdminContext, AdminJwtAuthGuard, CurrentAdmin, Roles } from './admin-auth';
 import { AdminService } from './admin.service';
-import { AdminLoginDto, AuditDecisionDto, CertReviewDto, ConfigUpdateDto, OpsSlotUpsertDto, TicketUpdateDto } from './dto/admin.dto';
+import { AdminLoginDto, AuditDecisionDto, CertReviewDto, ConfigUpdateDto, ManagerLeadAssignDto, OpsSlotUpsertDto, RefundDecisionDto, TicketUpdateDto } from './dto/admin.dto';
 
 /**
  * 管理后台（PRD §5.13）。路由前缀 /admin/v1（main.ts 全局前缀已排除 admin 段）。
@@ -74,6 +74,15 @@ export class AdminController {
     return this.admin.listOrders(payStatus, Number(page) || 1, Math.min(Number(size) || 20, 100));
   }
 
+  @Post('orders/:orderId/refund')
+  @UseGuards(AdminJwtAuthGuard)
+  @Roles('SUPER', 'FINANCE')
+  @HttpCode(200)
+  refundOrder(@CurrentAdmin() admin: AdminContext, @Param('orderId') orderId: string, @Body() dto: RefundDecisionDto) {
+    if (!/^\d{1,19}$/.test(orderId)) throw new BadRequestException('orderId 非法');
+    return this.admin.refundOrder(admin, BigInt(orderId), dto);
+  }
+
   // ==================== 配置中心（红线 I1 唯一写入口） ====================
 
   @Get('config')
@@ -125,6 +134,34 @@ export class AdminController {
   @HttpCode(200)
   updateTicket(@CurrentAdmin() admin: AdminContext, @Param('ticketId') ticketId: string, @Body() dto: TicketUpdateDto) {
     return this.admin.updateTicket(admin, BigInt(ticketId), dto);
+  }
+
+  // ==================== 管家留资派单（D6） ====================
+
+  @Get('manager-leads')
+  @UseGuards(AdminJwtAuthGuard)
+  @Roles('SUPER', 'OPERATOR')
+  listManagerLeads(@Query('status') status: string | undefined, @Query('page') page = '1', @Query('size') size = '20') {
+    if (status && !['NEW', 'ASSIGNED', 'FOLLOWING', 'DONE'].includes(status)) throw new BadRequestException('status 非法');
+    return this.admin.listManagerLeads(status, Number(page) || 1, Math.min(Number(size) || 20, 100));
+  }
+
+  @Post('manager-leads/:leadId/assign')
+  @UseGuards(AdminJwtAuthGuard)
+  @Roles('SUPER', 'OPERATOR')
+  @HttpCode(200)
+  assignManagerLead(@CurrentAdmin() admin: AdminContext, @Param('leadId') leadId: string, @Body() dto: ManagerLeadAssignDto) {
+    if (!/^\d{1,19}$/.test(leadId)) throw new BadRequestException('leadId 非法');
+    return this.admin.assignManagerLead(admin, BigInt(leadId), BigInt(dto.managerId));
+  }
+
+  @Put('manager-leads/:leadId/status')
+  @UseGuards(AdminJwtAuthGuard)
+  @Roles('SUPER', 'OPERATOR')
+  @HttpCode(200)
+  updateManagerLeadStatus(@CurrentAdmin() admin: AdminContext, @Param('leadId') leadId: string, @Body('status') status: string) {
+    if (!/^\d{1,19}$/.test(leadId)) throw new BadRequestException('leadId 非法');
+    return this.admin.updateManagerLeadStatus(admin, BigInt(leadId), status);
   }
 
   // ==================== IM 风控台 / 看板 ====================

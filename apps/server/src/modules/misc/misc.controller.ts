@@ -7,6 +7,7 @@ import { UpdateNotifyPrefDto } from './dto/notify-pref.dto';
 import { AddBlacklistDto } from './dto/blacklist.dto';
 import { UpdatePrivacyDto } from './dto/privacy.dto';
 import { AccountCloseDto } from './dto/account-close.dto';
+import { CreateManagerLeadDto } from './dto/manager-lead.dto';
 
 /**
  * 消息中心/工单/设置/运营位（Step 12，契约 docs/openapi.yaml misc 段）。
@@ -89,6 +90,12 @@ export class MiscController {
   revokeConsent(@CurrentUserId() userId: bigint, @Param('id') id: string) {
     if (!/^\d+$/.test(id)) throw new BadRequestException('id 非法');
     return this.misc.revokeConsent(userId, BigInt(id));
+  }
+
+  @Post('manager-leads')
+  @UseGuards(JwtAuthGuard)
+  createManagerLead(@CurrentUserId() userId: bigint, @Body() dto: CreateManagerLeadDto) {
+    return this.misc.createManagerLead(userId, dto);
   }
 
   @Get('blacklist')

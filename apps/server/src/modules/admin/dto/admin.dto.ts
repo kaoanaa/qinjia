@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class AdminLoginDto {
   @IsString() @IsNotEmpty() @MaxLength(64)
@@ -54,6 +54,19 @@ export class OpsSlotUpsertDto {
 
   @IsOptional() @IsIn(['true', 'false'])
   enabled?: string;
+}
+
+export class RefundDecisionDto {
+  @IsBoolean()
+  approved!: boolean;
+
+  @IsOptional() @IsString() @MaxLength(500)
+  reason?: string;
+}
+
+export class ManagerLeadAssignDto {
+  @Matches(/^\d{1,19}$/, { message: 'managerId 非法' })
+  managerId!: string;
 }
 
 export class TicketUpdateDto {
