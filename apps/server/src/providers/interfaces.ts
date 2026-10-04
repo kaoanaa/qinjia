@@ -83,6 +83,8 @@ export interface KvCache {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSeconds: number): Promise<void>;
   del(key: string): Promise<void>;
+  /** 原子自增计数（§6.6 限频）：key 不存在按 0 起算返回 1，首次写入设 ttl；返回自增后的值 */
+  incr(key: string, ttlSeconds: number): Promise<number>;
 }
 
 /** 配置中心抽象（§3.5，红线 I1：业务代码禁止出现裸数值） */

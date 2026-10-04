@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { CurrentUserId } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UnlockService } from './unlock.service';
+import { UnlockRateLimitGuard } from './unlock-rate-limit.guard';
 import { UnlockCheckDto, UnlockDto } from './dto/unlock.dto';
 
 const IDEM_TTL_MS = 15 * 60_000;
@@ -26,6 +27,7 @@ export class UnlockController {
   }
 
   @Post()
+  @UseGuards(UnlockRateLimitGuard)
   async unlock(
     @CurrentUserId() userId: bigint,
     @Headers('idempotency-key') idemKey: string | undefined,

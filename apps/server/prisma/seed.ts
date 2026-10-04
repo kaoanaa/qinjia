@@ -4,6 +4,7 @@
  * 运行：pnpm --filter @qinjia/server db:seed
  */
 import { AdminRole, OpsSlotType, PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -34,10 +35,10 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
   feed_weights: {
     sameCity: 30,
     sameDistrict: 10,
-    educationMatch: 10,
+    eduMatch: 10,
     incomeOverlap: 10,
     active7d: 15,
-    freshProfile48h: 20,
+    fresh48h: 20,
     maritalVerified: 30,
     maritalUnverified: -20,
   },
@@ -66,8 +67,13 @@ const CONFIG_DEFAULTS: Record<string, unknown> = {
       realnameUnfreeze: { title: '实名审核通过', body: '恭喜！实名认证已通过，冻结的解锁次数已恢复，可以去解锁联系方式啦' },
       unlockExpire: { title: '解锁已到期', body: '您解锁的联系方式已到期，聊天功能已暂停；如仍有意向可重新解锁继续联系' },
       ticketReceived: { title: '工单已受理', body: '我们已收到您的反馈，客服将在承诺时限内与您联系' },
+      // Step 13 后台审核 → 系统消息（§5.12 审核模板）
+      auditPass: { title: '档案审核通过', body: '您的档案已通过审核，正式出现在亲家推荐中啦' },
+      auditReject: { title: '档案审核未通过', body: '很抱歉，您的档案未通过审核，请按提示修改后重新提交' },
     },
   },
+  // §6.6 Step 13：解锁接口限频（每分钟令牌数 + 窗口秒；具体阈值 PRD 未定，seed 默认，后台可调）
+  rate_limit: { unlockPerMinute: 30, windowSeconds: 60 },
   // §6.5/§5.13 Step 12：工单首响 SLA（小时，禁止代码硬编码 48）
   ticket_sla: { firstResponseHours: 48 },
   // §11-10 提醒节点（§3.2/§5.11）
@@ -103,13 +109,13 @@ async function main() {
     });
   }
 
-  const adminPasswordPlaceholder = 'CHANGE_ME_bcrypt_on_step13';
+  // Step 13：真实 bcrypt 哈希；默认口令仅 seed 引导（部署文档要求首登改密，生产 env 覆盖）
   await prisma.adminUser.upsert({
     where: { username: 'admin' },
     update: {},
     create: {
       username: 'admin',
-      passwordHash: adminPasswordPlaceholder, // Step 13 接入真实 hash 后强制改密
+      passwordHash: bcrypt.hashSync(process.env.ADMIN_DEFAULT_PASSWORD ?? 'admin123', 10),
       role: AdminRole.SUPER,
     },
   });

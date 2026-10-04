@@ -135,6 +135,7 @@ export const ConfigKeys = {
     OPS_SLOTS: 'ops_slots', // 运营位内容
     IM_CONFIG: 'im_config', // Step 10 Exit：IM 通道与风控（sdkAppId/订阅消息模板 ID/敏感词），模板 ID 进 reward_config
     TICKET_SLA: 'ticket_sla', // Step 12：工单首响 SLA（§6.5/§5.13，默认 48h，禁止代码写死）
+    RATE_LIMIT: 'rate_limit', // Step 13 §6.6：解锁接口限频（Redis 令牌桶参数，禁止代码写死阈值）
 };
 /** 金额单位：全站以「分」存储与计算，禁止浮点 */
 export const CURRENCY_UNIT = 'CENT';

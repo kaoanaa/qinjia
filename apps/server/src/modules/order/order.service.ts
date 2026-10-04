@@ -34,6 +34,15 @@ interface MemberPlanCfg {
   amountCent: number;
 }
 
+export interface ReconcileReport {
+  date: string;
+  billCount: number;
+  localCount: number;
+  missingInSystem: string[]; // 账单有成交、系统无订单（漏记账/串单）
+  missingInBill: string[]; // 系统标 PAID、账单无（未真实到账/多发）
+  amountMismatch: string[]; // 双方有但金额不符
+}
+
 /**
  * 订单与支付回调（§6.1 第 3 步 + §5.9）。金额全部以「分」计（I5 资金安全）。
  * 回调幂等双保险：payStatus 条件更新门闸 + transactionId 唯一约束。
@@ -304,6 +313,74 @@ export class OrderService {
     const c = await this.config.get<{ days: number }>(ConfigKeys.UNLOCK_VALIDITY);
     if (!c?.days) throw new Error('缺少 unlock_validity 配置');
     return c.days;
+  }
+
+  /**
+   * 支付对账日切（§6.6 防刷/资金安全）：拉取指定日期微信账单，与本地 PAID 订单逐笔比对。
+   * 差异分类：账单有/本地无（漏单或串单）、本地有/账单无（未到账或多发）、金额不符。
+   * 只读不改账；差异打告警日志供人工介入。date 形如 YYYYMMDD，缺省=昨日。
+   */
+  async reconcileDay(date?: string): Promise<ReconcileReport> {
+    const day = date ?? this.yesterdayYmd();
+    const report: ReconcileReport = {
+      date: day,
+      billCount: 0,
+      localCount: 0,
+      missingInSystem: [] as string[],
+      missingInBill: [] as string[],
+      amountMismatch: [] as string[],
+    };
+
+    const billRows = await this.wxpay.downloadBill(day);
+    const billMap = new Map<string, number>(); // outTradeNo → amountCent
+    for (const line of billRows) {
+      const parsed = this.parseBillLine(line);
+      if (parsed) billMap.set(parsed.outTradeNo, parsed.amountCent);
+    }
+
+    // 本地当日成交（按 paidAt 落在该自然日）
+    const start = new Date(`${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}T00:00:00Z`);
+    const end = new Date(start.getTime() + 864e5);
+    const local = await this.prisma.order.findMany({
+      where: { payStatus: PayStatus.PAID, paidAt: { gte: start, lt: end } },
+      select: { outTradeNo: true, amountCent: true, couponDeductCent: true },
+    });
+
+    report.billCount = billMap.size;
+    report.localCount = local.length;
+    for (const o of local) {
+      const payable = o.amountCent - o.couponDeductCent; // 账单记录实付（券后）
+      const billed = billMap.get(o.outTradeNo);
+      if (billed === undefined) report.missingInBill.push(o.outTradeNo);
+      else if (billed !== payable) report.amountMismatch.push(o.outTradeNo);
+    }
+    const localNos = new Set(local.map((o) => o.outTradeNo));
+    for (const no of billMap.keys()) if (!localNos.has(no)) report.missingInSystem.push(no);
+
+    const diffTotal = report.missingInBill.length + report.missingInSystem.length + report.amountMismatch.length;
+    if (diffTotal > 0) {
+      this.logger.error(`支付对账差异 ${day}: 本地有账单无=${report.missingInBill.length} 账单有本地无=${report.missingInSystem.length} 金额不符=${report.amountMismatch.length}`);
+    } else {
+      this.logger.log(`支付对账通过 ${day}: ${local.length} 笔一致`);
+    }
+    return report;
+  }
+
+  /** 微信交易账单行解析（CSV，容忍表头/空行/引号）：取单号列与总金额列（元→分） */
+  private parseBillLine(line: string): { outTradeNo: string; amountCent: number } | null {
+    if (!line || line.startsWith('#')) return null;
+    const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+    const outTradeNo = cols.find((c) => /^QJ\d+$/.test(c));
+    if (!outTradeNo) return null;
+    // 金额列取最后一个可解析为数字的字段（账单以元为单位）
+    const amountRaw = [...cols].reverse().find((c) => /^-?\d+(\.\d+)?$/.test(c));
+    const amountCent = amountRaw ? Math.round(parseFloat(amountRaw) * 100) : 0;
+    return { outTradeNo, amountCent };
+  }
+
+  private yesterdayYmd(): string {
+    const d = new Date(Date.now() - 864e5);
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
   }
 
   private genOutTradeNo(): string {

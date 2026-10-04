@@ -486,6 +486,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: 触发解锁限频（§6.6，阈值读 reward_config.rate_limit，红线 I1）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/unlock/records:
     get:
@@ -1288,7 +1293,7 @@ paths:
               properties:
                 decision: { type: string, enum: [APPROVE, REJECT] }
                 reason: { type: string }
-                maritalVerified: { type: boolean, description: 婚姻证明选审结论（D5） }
+                maritalVerified: { type: string, enum: [PASS, FAIL], description: 婚姻证明选审结论（D5） }
       responses:
         "200": { description: 已裁决（写 AdminAuditLog） }
 
@@ -1358,6 +1363,25 @@ paths:
                   calcDetail: { type: object, description: 公式逐项（用例 7） }
                   quotaReturned: { type: boolean }
 
+  /admin/v1/config:
+    get:
+      tags: [admin]
+      summary: 配置项清单（§11 全集 key + 当前值，Verify「全部参数可后台改」入口）
+      operationId: adminListConfigs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    configKey: { type: string }
+                    value: { type: object }
+                    updatedAt: { type: string, format: date-time }
+
   /admin/v1/config/{key}:
     get:
       tags: [admin]
@@ -1415,12 +1439,18 @@ paths:
       tags: [admin]
       summary: 工单列表（举报投诉/退款/反馈，按 SLA 倒计时排序）
       operationId: adminListTickets
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [OPEN, PROCESSING, CLOSED] } }
       responses:
         "200": { description: OK }
+
+  /admin/v1/tickets/{ticketId}:
     put:
       tags: [admin]
-      summary: 工单处理（状态流转+回复）
+      summary: 工单处理（状态流转+回复；写 AdminAuditLog）
       operationId: adminUpdateTicket
+      parameters:
+        - { name: ticketId, in: path, required: true, schema: { type: string, format: int64 } }
       requestBody:
         content:
           application/json:
@@ -1431,6 +1461,36 @@ paths:
                 handlerNote: { type: string }
       responses:
         "200": { description: OK }
+
+  /admin/v1/audit/certifications:
+    get:
+      tags: [admin]
+      summary: 实名复核队列（§5.13：人脸核身通过记录抽查）
+      operationId: adminListCertifications
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/size" }
+      responses:
+        "200": { description: OK }
+
+  /admin/v1/audit/certifications/{certId}:
+    post:
+      tags: [admin]
+      summary: 实名复核裁决（REVOKE 清 idCardNoHash 并冻结 active 额度；写 AdminAuditLog）
+      operationId: adminReviewCertification
+      parameters:
+        - { name: certId, in: path, required: true, schema: { type: string, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [CONFIRM, REVOKE] }
+                reason: { type: string }
+      responses:
+        "200": { description: 已裁决 }
 
   /admin/v1/im/risk-events:
     get:
@@ -1466,6 +1526,28 @@ paths:
                   paidAmountCent: { type: integer }
                   refunds: { type: integer }
                   invitedRewarded: { type: integer }
+
+  /admin/v1/reconciliation/run:
+    post:
+      tags: [admin]
+      summary: 支付对账日切（§6.6）：比对微信账单与本地 PAID 订单，返回差异报告（只读，写 AdminAuditLog）
+      operationId: adminRunReconciliation
+      parameters:
+        - { name: date, in: query, required: false, schema: { type: string, pattern: '^\d{8}$' }, description: YYYYMMDD，缺省=昨日 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date: { type: string }
+                  billCount: { type: integer }
+                  localCount: { type: integer }
+                  missingInSystem: { type: array, items: { type: string } }
+                  missingInBill: { type: array, items: { type: string } }
+                  amountMismatch: { type: array, items: { type: string } }
 
 components:
   securitySchemes:

@@ -28,4 +28,11 @@ export class RedisKvCache implements KvCache, OnModuleDestroy {
   async del(key: string) {
     await this.client.del(`qj:${key}`);
   }
+
+  async incr(key: string, ttlSeconds: number) {
+    const k = `qj:${key}`;
+    const n = await this.client.incr(k); // 原子自增
+    if (n === 1) await this.client.expire(k, ttlSeconds); // 首窗口设 TTL
+    return n;
+  }
 }

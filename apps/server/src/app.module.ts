@@ -12,6 +12,7 @@ import { FeedModule } from './modules/feed/feed.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { MiscModule } from './modules/misc/misc.module';
 import { OrderModule } from './modules/order/order.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProvidersModule } from './providers/providers.module';
@@ -41,6 +42,7 @@ import { ProvidersModule } from './providers/providers.module';
     FeedModule,
     ChatModule,
     MiscModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

@@ -128,12 +128,22 @@ export class ChatService {
     // ① 权限：仅 active 且未过期解锁可发（用例 2 延伸双向；过期/未解锁服务端拒绝，前端隐藏不算数）
     const active = conv ? await this.unlock.activeUnlockBetween(from, to) : null;
     if (!active) {
-      if (PHONE_RE.test(text) || WECHAT_RE.test(text)) return this.fail(20001, copy.chatBlockedContactTip);
+      const phoneHit = PHONE_RE.test(text);
+      const wechatHit = !phoneHit && WECHAT_RE.test(text);
+      if (phoneHit || wechatHit) {
+        // 解锁前明文联系方式：拦截 + 风控台留痕（红线 I3；§5.13）
+        await this.recordRisk(from, 'CONTACT', 20001, { via: phoneHit ? 'PHONE' : 'WECHAT', to: to.toString(), snippet: this.redact(text) });
+        return this.fail(20001, copy.chatBlockedContactTip);
+      }
       return this.fail(20002, conv ? copy.chatExpiredSendTip : copy.chatNotUnlockedTip);
     }
 
     // ② 敏感词（msgAudit 简化版；真实实现叠加腾讯天御鉴黄）
-    if (cfg.sensitiveWords.some((w) => text.includes(w))) return this.fail(20003, copy.chatSensitiveTip);
+    const sensitiveHit = cfg.sensitiveWords.find((w) => text.includes(w));
+    if (sensitiveHit) {
+      await this.recordRisk(from, 'SENSITIVE', 20003, { word: sensitiveHit, to: to.toString(), snippet: this.redact(text) });
+      return this.fail(20003, copy.chatSensitiveTip);
+    }
 
     // ③ 图片：策略 im_config.imageGuardStrategy（msg_audit + OCR 兜底，真实实现逐消息调用）
     const now = new Date();
@@ -235,5 +245,19 @@ export class ChatService {
 
   private fail(code: number, info: string): ImCallbackResp {
     return { ActionStatus: 'FAIL', ErrorCode: code, ErrorInfo: info };
+  }
+
+  /** 风控台留痕（§5.13）：不落消息原文，仅存命中方式 + 脱敏摘要，避免二次泄露联系方式（I5） */
+  private async recordRisk(userId: bigint, category: 'CONTACT' | 'SENSITIVE', code: number, detail: Record<string, string>) {
+    try {
+      await this.prisma.riskEvent.create({ data: { userId, category, code, detail: detail as object } });
+    } catch (e) {
+      this.logger.warn(`RiskEvent 落库失败: ${(e as Error).message}`);
+    }
+  }
+
+  /** 摘要脱敏：数字打星，截断，避免留痕反成明文联系方式 */
+  private redact(text: string): string {
+    return text.replace(/\d/g, '*').slice(0, 20);
   }
 }

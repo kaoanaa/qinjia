@@ -160,6 +160,15 @@ export class MockKvCache implements KvCache {
   async del(key: string) {
     this.store.delete(key);
   }
+
+  async incr(key: string, ttlSeconds: number) {
+    const now = Date.now();
+    const hit = this.store.get(key);
+    const expired = !hit || hit.expireAt <= now;
+    const n = expired ? 1 : (parseInt(hit!.value, 10) || 0) + 1;
+    this.store.set(key, { value: String(n), expireAt: expired ? now + ttlSeconds * 1000 : hit!.expireAt });
+    return n;
+  }
 }
 
 @Injectable()
@@ -203,9 +212,12 @@ export class MockConfigCenter implements ConfigCenter {
         realnameUnfreeze: { title: '实名审核通过', body: '恭喜！实名认证已通过，冻结的解锁次数已恢复，可以去解锁联系方式啦' },
         unlockExpire: { title: '解锁已到期', body: '您解锁的联系方式已到期，聊天功能已暂停；如仍有意向可重新解锁继续联系' },
         ticketReceived: { title: '工单已受理', body: '我们已收到您的反馈，客服将在承诺时限内与您联系' },
+        auditPass: { title: '档案审核通过', body: '您的档案已通过审核，正式出现在亲家推荐中啦' },
+        auditReject: { title: '档案审核未通过', body: '很抱歉，您的档案未通过审核，请按提示修改后重新提交' },
       },
     },
     ticket_sla: { firstResponseHours: 48 },
+    rate_limit: { unlockPerMinute: 30, windowSeconds: 60 },
     remind_nodes: { trialBeforeDays: 2, paidBeforeDays: 7 },
     big_pay_threshold: { amountCent: 50000 },
     coupon_templates: [],
