@@ -18,6 +18,8 @@ export const INCOME_OPTIONS = [
   { value: 'UNDISCLOSED', label: '保密' },
 ];
 
+export const BODY_TYPE_OPTIONS = ['偏瘦', '标准', '偏胖'];
+
 export const MARITAL_OPTIONS = [
   { value: 'UNMARRIED', label: '未婚' },
   { value: 'DIVORCED', label: '离异' },

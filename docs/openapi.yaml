@@ -1822,6 +1822,13 @@ components:
         housing: { type: string, enum: [OWNED_FULL, OWNED_MORTGAGE, NONE, UNDISCLOSED] }
         car: { type: string, enum: [OWNED, NONE, UNDISCLOSED] }
         intro: { type: string, maxLength: 500, description: 家长评语 }
+        bodyType: { type: string, maxLength: 10, description: 体型（偏瘦/标准/偏胖，选填） }
+        expectHeightMin: { type: integer, minimum: 100, maximum: 250, description: 择偶-身高下限 }
+        expectHeightMax: { type: integer, minimum: 100, maximum: 250, description: 择偶-身高上限 }
+        expectBirthYearMin: { type: integer, minimum: 1900, maximum: 2020, description: 择偶-出生年份下限 }
+        expectBirthYearMax: { type: integer, minimum: 1900, maximum: 2020, description: 择偶-出生年份上限 }
+        expectEducation: { type: string, enum: [JUNIOR_HIGH, HIGH_SCHOOL, VOCATIONAL, COLLEGE, BACHELOR, MASTER, DOCTOR], description: 择偶-最低学历（及以上） }
+        expectCity: { type: string, maxLength: 30, description: 择偶-期望定居城市 }
         photoObjectKeys: { type: array, items: { type: string }, maxItems: 9 }
         maritalStatus: { type: string, enum: [UNMARRIED, DIVORCED, WIDOWED, UNDISCLOSED] }
 
@@ -1876,6 +1883,14 @@ components:
             hometown: { type: string }
             hukou: { type: string }
             intro: { type: string }
+            bodyType: { type: string, nullable: true }
+            chineseZodiac: { type: string, description: 属相（服务端由出生年份推算） }
+            expectHeightMin: { type: integer, nullable: true }
+            expectHeightMax: { type: integer, nullable: true }
+            expectBirthYearMin: { type: integer, nullable: true }
+            expectBirthYearMax: { type: integer, nullable: true }
+            expectEducation: { type: string, nullable: true, description: 最低学历（及以上） }
+            expectCity: { type: string, nullable: true }
             photos:
               type: array
               description: 未解锁=全部打码签名 URL；解锁后清晰（服务端裁决，红线 I3）

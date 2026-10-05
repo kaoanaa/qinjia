@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { http } from '@/api/http';
-import { EDUCATION_OPTIONS, INCOME_OPTIONS, MARITAL_OPTIONS } from '@/api/options';
+import { BODY_TYPE_OPTIONS, EDUCATION_OPTIONS, INCOME_OPTIONS, MARITAL_OPTIONS, labelOf } from '@/api/options';
 
 // 建档表单（PRD §5.2/§5.9 字段）→ POST /profiles 存草稿，下一步进承诺书发布
 // 带 ?profileId 时为编辑模式：回填 + PUT（修改后服务端重置 PENDING 重审）
@@ -20,7 +20,16 @@ const form = reactive({
   maritalStatus: 'UNMARRIED',
   residenceCity: '杭州',
   residenceDistrict: '',
+  hometown: '',
+  hukou: '',
   intro: '',
+  bodyType: '标准',
+  expectHeightMin: '',
+  expectHeightMax: '',
+  expectBirthYearMin: '',
+  expectBirthYearMax: '',
+  expectEducation: '',
+  expectCity: '',
 });
 const photoKeys = ref<string[]>([]);
 const submitting = ref(false);
@@ -40,7 +49,16 @@ onLoad(async (q) => {
   form.maritalStatus = String(p.maritalStatus ?? 'UNMARRIED');
   form.residenceCity = String(p.residenceCity ?? '');
   form.residenceDistrict = String(p.residenceDistrict ?? '');
+  form.hometown = String(p.hometown ?? '');
+  form.hukou = String(p.hukou ?? '');
   form.intro = String(p.intro ?? '');
+  form.bodyType = String(p.bodyType ?? '标准');
+  form.expectHeightMin = p.expectHeightMin == null ? '' : String(p.expectHeightMin);
+  form.expectHeightMax = p.expectHeightMax == null ? '' : String(p.expectHeightMax);
+  form.expectBirthYearMin = p.expectBirthYearMin == null ? '' : String(p.expectBirthYearMin);
+  form.expectBirthYearMax = p.expectBirthYearMax == null ? '' : String(p.expectBirthYearMax);
+  form.expectEducation = String(p.expectEducation ?? '');
+  form.expectCity = String(p.expectCity ?? '');
   photoKeys.value = (p.photoObjectKeys as string[]) ?? [];
 });
 
@@ -50,6 +68,11 @@ const maritalLabels = computed(() => MARITAL_OPTIONS.map((o) => o.label));
 const eduIndex = computed(() => Math.max(0, EDUCATION_OPTIONS.findIndex((o) => o.value === form.education)));
 const incomeIndex = computed(() => Math.max(0, INCOME_OPTIONS.findIndex((o) => o.value === form.incomeRange)));
 const maritalIndex = computed(() => Math.max(0, MARITAL_OPTIONS.findIndex((o) => o.value === form.maritalStatus)));
+
+/** 择偶-学历（含“不限”空项） */
+const expectEduValues = computed(() => ['', ...EDUCATION_OPTIONS.map((o) => o.value)]);
+const expectEduLabels = computed(() => ['不限', ...EDUCATION_OPTIONS.map((o) => `${o.label}及以上`)]);
+const expectEduLabel = computed(() => (form.expectEducation ? labelOf(EDUCATION_OPTIONS, form.expectEducation) + '及以上' : ''));
 
 /** 模拟直传：向后端申请 objectKey（mock OSS，真实流程再 PUT uploadUrl） */
 async function addPhoto() {
@@ -87,7 +110,16 @@ async function submit() {
       maritalStatus: form.maritalStatus,
       residenceCity: form.residenceCity.trim(),
       residenceDistrict: form.residenceDistrict.trim() || undefined,
+      hometown: form.hometown.trim() || undefined,
+      hukou: form.hukou.trim() || undefined,
       intro: form.intro.trim() || undefined,
+      bodyType: form.bodyType || undefined,
+      expectHeightMin: form.expectHeightMin ? Number(form.expectHeightMin) : undefined,
+      expectHeightMax: form.expectHeightMax ? Number(form.expectHeightMax) : undefined,
+      expectBirthYearMin: form.expectBirthYearMin ? Number(form.expectBirthYearMin) : undefined,
+      expectBirthYearMax: form.expectBirthYearMax ? Number(form.expectBirthYearMax) : undefined,
+      expectEducation: form.expectEducation || undefined,
+      expectCity: form.expectCity.trim() || undefined,
       photoObjectKeys: photoKeys.value,
     };
     if (editId.value) {
@@ -170,9 +202,50 @@ async function submit() {
       <input v-model="form.residenceDistrict" class="input" placeholder="如 西湖区" maxlength="30" />
     </view>
 
+    <view class="row">
+      <text class="label">老家（选填）</text>
+      <input v-model="form.hometown" class="input" placeholder="如 河南焦作" maxlength="30" />
+    </view>
+
+    <view class="row">
+      <text class="label">户籍（选填）</text>
+      <input v-model="form.hukou" class="input" placeholder="如 河南省焦作市武陟县" maxlength="30" />
+    </view>
+
+    <view class="row">
+      <text class="label">体型</text>
+      <picker :range="BODY_TYPE_OPTIONS" @change="(e: any) => (form.bodyType = BODY_TYPE_OPTIONS[e.detail.value])">
+        <view class="picker">{{ form.bodyType || '标准' }}</view>
+      </picker>
+    </view>
+
     <view class="col">
       <text class="label">家长寄语（选填）</text>
-      <textarea v-model="form.intro" class="textarea" placeholder="介绍一下孩子的性格、期待的另一半" maxlength="500" />
+      <textarea v-model="form.intro" class="textarea" placeholder="介绍一下孩子的性格特点" maxlength="500" />
+    </view>
+
+    <text class="section-title">择偶标准（选填，展示给对方亲家）</text>
+    <view class="row">
+      <text class="label">身高要求</text>
+      <input v-model="form.expectHeightMin" class="input half" type="number" placeholder="下限cm" />
+      <text class="dash">至</text>
+      <input v-model="form.expectHeightMax" class="input half" type="number" placeholder="上限cm" />
+    </view>
+    <view class="row">
+      <text class="label">年份要求</text>
+      <input v-model="form.expectBirthYearMin" class="input half" type="number" placeholder="如1992" />
+      <text class="dash">至</text>
+      <input v-model="form.expectBirthYearMax" class="input half" type="number" placeholder="如1998" />
+    </view>
+    <view class="row">
+      <text class="label">学历要求</text>
+      <picker :range="expectEduLabels" @change="(e: any) => (form.expectEducation = expectEduValues[e.detail.value])">
+        <view class="picker">{{ expectEduLabel || '不限' }}</view>
+      </picker>
+    </view>
+    <view class="row">
+      <text class="label">地区要求</text>
+      <input v-model="form.expectCity" class="input" placeholder="如 杭州（不限可留空）" maxlength="30" />
     </view>
 
     <view class="col">
@@ -201,6 +274,9 @@ async function submit() {
 .seg text:first-child { border-radius: 16rpx 0 0 16rpx; }
 .seg text:last-child { border-radius: 0 16rpx 16rpx 0; }
 .seg text.on { background: #e64340; color: #fff; border-color: #e64340; }
+.section-title { display: block; margin-top: 48rpx; padding-top: 24rpx; border-top: 2rpx solid #eee; font-size: 38rpx; font-weight: bold; color: #222; }
+.input.half { flex: 1; width: 0; text-align: center; }
+.dash { margin: 0 16rpx; color: #999; font-size: 32rpx; }
 .textarea { width: 100%; min-height: 160rpx; border: 2rpx solid #ddd; border-radius: 16rpx; padding: 24rpx; font-size: 34rpx; background: #fff; box-sizing: border-box; }
 .photos { display: flex; flex-wrap: wrap; margin-top: 16rpx; }
 .photo-chip { padding: 20rpx 28rpx; background: #ffe9e8; color: #e64340; border-radius: 12rpx; margin: 0 16rpx 16rpx 0; font-size: 32rpx; }

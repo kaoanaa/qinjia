@@ -23,6 +23,14 @@ interface Detail {
   hometown: string | null;
   hukou: string | null;
   intro: string | null;
+  bodyType: string | null;
+  chineseZodiac: string;
+  expectHeightMin: number | null;
+  expectHeightMax: number | null;
+  expectBirthYearMin: number | null;
+  expectBirthYearMax: number | null;
+  expectEducation: string | null;
+  expectCity: string | null;
   relation: string;
   agentNickname: string;
   realnameSeal: boolean;
@@ -101,6 +109,8 @@ const marital = (v?: string) => (v ? labelOf(MARITAL_OPTIONS, v) : '未填写');
 
     <view class="facts">
       <view class="fact"><text class="k">学历</text><text class="v">{{ edu(d.education) }}</text></view>
+      <view class="fact"><text class="k">属相</text><text class="v">{{ d.chineseZodiac }}</text></view>
+      <view class="fact"><text class="k">体型</text><text class="v">{{ d.bodyType || '未填写' }}</text></view>
       <view class="fact"><text class="k">职业</text><text class="v">{{ d.occupation }}</text></view>
       <view class="fact"><text class="k">月收入</text><text class="v">{{ income(d.incomeRange) }}</text></view>
       <view class="fact"><text class="k">婚姻状况</text><text class="v">{{ marital(d.maritalStatus) }}{{ d.maritalVerified ? '（已核验）' : '（未核验）' }}</text></view>
@@ -110,6 +120,14 @@ const marital = (v?: string) => (v ? labelOf(MARITAL_OPTIONS, v) : '未填写');
     </view>
 
     <view v-if="d.intro" class="intro"><text class="k">家长寄语</text><text class="intro-text">{{ d.intro }}</text></view>
+
+    <view v-if="d.expectHeightMin || d.expectHeightMax || d.expectBirthYearMin || d.expectBirthYearMax || d.expectEducation || d.expectCity" class="expect">
+      <text class="e-title">TA 的择偶要求</text>
+      <view v-if="d.expectHeightMin || d.expectHeightMax" class="fact"><text class="k">身高要求</text><text class="v">{{ d.expectHeightMin || '不限' }}cm - {{ d.expectHeightMax || '不限' }}cm</text></view>
+      <view v-if="d.expectBirthYearMin || d.expectBirthYearMax" class="fact"><text class="k">年份要求</text><text class="v">{{ d.expectBirthYearMin || '不限' }}年 - {{ d.expectBirthYearMax || '不限' }}年</text></view>
+      <view v-if="d.expectEducation" class="fact"><text class="k">学历要求</text><text class="v">{{ edu(d.expectEducation) }}及以上</text></view>
+      <view v-if="d.expectCity" class="fact"><text class="k">地区要求</text><text class="v">{{ d.expectCity }}</text></view>
+    </view>
 
     <button v-if="!d.contactVisible" class="big-btn" @click="goUnlock">解锁联系方式</button>
     <view v-else class="unlocked-hint">
@@ -151,6 +169,8 @@ const marital = (v?: string) => (v ? labelOf(MARITAL_OPTIONS, v) : '未填写');
 .k { width: 200rpx; font-size: 34rpx; color: #777; }
 .v { flex: 1; font-size: 34rpx; color: #222; }
 .intro { margin-top: 24rpx; background: #fff; border-radius: 20rpx; padding: 28rpx; }
+.expect { margin-top: 24rpx; background: #f7f9ff; border-radius: 20rpx; padding: 28rpx; }
+.e-title { display: block; font-size: 36rpx; font-weight: bold; color: #1a3b7a; margin-bottom: 8rpx; }
 .intro-text { display: block; margin-top: 12rpx; font-size: 34rpx; color: #333; line-height: 1.7; }
 .big-btn { margin-top: 40rpx; height: 104rpx; line-height: 104rpx; background: #e64340; color: #fff; font-size: 40rpx; border-radius: 52rpx; }
 .unlocked-hint { display: flex; align-items: center; justify-content: space-between; margin-top: 40rpx; background: #e8f5e9; border-radius: 16rpx; padding: 24rpx 32rpx; }

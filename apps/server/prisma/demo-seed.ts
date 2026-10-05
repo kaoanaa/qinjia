@@ -45,6 +45,9 @@ async function main() {
       relation: 'FATHER', gender: 'MALE', birthYear: 1995, heightCm: 178,
       education: 'BACHELOR', occupation: '软件工程师', incomeRange: 'R20K_50K',
       residenceCity: '杭州', residenceDistrict: '西湖区', intro: '孩子踏实上进，工作稳定，家长诚意代征婚',
+      bodyType: '标准',
+      expectHeightMin: 160, expectHeightMax: 172, expectBirthYearMin: 1992, expectBirthYearMax: 1999,
+      expectEducation: 'COLLEGE', expectCity: '杭州',
       photos: [{ objectKey: 'demo/photos/actor_1.jpg', sort: 1 }],
       isMaritalVerified: true, maritalStatus: 'UNMARRIED',
       singleCommitmentSignedAt: new Date(), singleCommitmentVersion: 'v1',
@@ -80,6 +83,11 @@ async function main() {
         incomeRange: ['R10K_20K', 'R20K_50K', 'UNDISCLOSED'][i % 3],
         residenceCity: CITIES[i], residenceDistrict: i < 3 ? '西湖区' : null,
         intro: INTROS[i % INTROS.length],
+        bodyType: '标准',
+        // 择偶标准示例（详情页展示）
+        expectHeightMin: 165, expectHeightMax: 180,
+        expectBirthYearMin: 1988 + (i % 12) - 5, expectBirthYearMax: 1988 + (i % 12) + 3,
+        expectEducation: 'BACHELOR', expectCity: CITIES[i],
         photos: [
           { objectKey: `demo/photos/c${i}_1.jpg`, sort: 1 },
           { objectKey: `demo/photos/c${i}_2.jpg`, sort: 2 },

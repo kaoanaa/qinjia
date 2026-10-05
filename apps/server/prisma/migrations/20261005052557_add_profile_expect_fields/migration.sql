@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE `Profile` ADD COLUMN `bodyType` VARCHAR(191) NULL,
+    ADD COLUMN `expectBirthYearMax` INTEGER NULL,
+    ADD COLUMN `expectBirthYearMin` INTEGER NULL,
+    ADD COLUMN `expectCity` VARCHAR(191) NULL,
+    ADD COLUMN `expectEducation` ENUM('JUNIOR_HIGH', 'HIGH_SCHOOL', 'VOCATIONAL', 'COLLEGE', 'BACHELOR', 'MASTER', 'DOCTOR') NULL,
+    ADD COLUMN `expectHeightMax` INTEGER NULL,
+    ADD COLUMN `expectHeightMin` INTEGER NULL;

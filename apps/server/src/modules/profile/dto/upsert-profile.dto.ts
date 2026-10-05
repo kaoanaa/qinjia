@@ -46,6 +46,28 @@ export class UpsertProfileDto {
   @IsString() @MaxLength(500) @IsOptional()
   intro?: string;
 
+  @IsString() @MaxLength(10) @IsOptional()
+  bodyType?: string;
+
+  /** 择偶标准（结构化可空） */
+  @IsInt() @Min(100) @Max(250) @IsOptional()
+  expectHeightMin?: number;
+
+  @IsInt() @Min(100) @Max(250) @IsOptional()
+  expectHeightMax?: number;
+
+  @IsInt() @Min(1900) @Max(2020) @IsOptional()
+  expectBirthYearMin?: number;
+
+  @IsInt() @Min(1900) @Max(2020) @IsOptional()
+  expectBirthYearMax?: number;
+
+  @IsEnum(Education) @IsOptional()
+  expectEducation?: Education;
+
+  @IsString() @MaxLength(30) @IsOptional()
+  expectCity?: string;
+
   /** 私有桶 objectKey（先走 /media/upload-token 直传） */
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(9) @IsOptional()
   photoObjectKeys?: string[];

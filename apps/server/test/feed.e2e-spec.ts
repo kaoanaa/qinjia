@@ -81,11 +81,13 @@ describe('推荐流与轮换 (e2e)', () => {
     await clearCandidates(); // 清掉历史 run 数据：推荐流是全局候选池，脏数据会污染 total/排序断言
   });
 
-  /** 停用全部候选（FM=本用例 + MD=detail 用例的男候选）并清空轮换标记，使候选池=本用例新建 */
+  /** 停用全部候选（FM=本用例 + MD=detail 用例的男候选 + DEMO=本地演示种子）并清空轮换标记，使候选池=本用例新建 */
   async function clearCandidates() {
     await prisma.feedRotationCard.deleteMany({});
     await prisma.profile.updateMany({ where: { matchNo: { startsWith: 'FM' } }, data: { isActive: false } });
     await prisma.profile.updateMany({ where: { matchNo: { startsWith: 'MD' } }, data: { isActive: false } });
+    // 演示种子（demo-seed，不进 CI）向全局池注入生效档案：DEMOACTOR01（男/1995/杭州）会被女 viewer 命中计数
+    await prisma.profile.updateMany({ where: { matchNo: { startsWith: 'DEMO' } }, data: { isActive: false } });
   }
 
   afterAll(async () => {

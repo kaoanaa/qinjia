@@ -286,6 +286,14 @@ model Profile {
   housing        HousingStatus @default(UNDISCLOSED)
   car            CarStatus     @default(UNDISCLOSED)
   intro          String?       @db.Text // 家长评语
+  bodyType       String?       // 体型（偏瘦/标准/偏胖，选填）
+  // 择偶标准（结构化可空，详情页展示；更细的期望写在 intro）
+  expectHeightMin     Int?
+  expectHeightMax     Int?
+  expectBirthYearMin  Int?
+  expectBirthYearMax  Int?
+  expectEducation     Education?
+  expectCity          String?
   photos         Json // [{objectKey, sort}]
   maritalStatus  MaritalStatus @default(UNDISCLOSED)
   maritalProofKeys String?     @db.Text // JSON数组，NULL=未上传（D5）
