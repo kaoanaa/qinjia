@@ -1,12 +1,22 @@
 <script setup lang="ts">
-// 本地群（PRD D8/P2）：占位不开发，话术由 /api/v1/local-groups stub 下发（copywriting 配置）
+import { ref } from 'vue';
+import { onShow } from '@dcloudio/uni-app';
+import { http } from '@/api/http';
+
+// 本地群（PRD D8/P2）：占位不开发，话术由 /local-groups 下发（copywriting 配置，红线 I1）
+const tip = ref('同城家长群正在筹备中');
+
+onShow(async () => {
+  const res = await http.get<{ available: boolean; tip: string }>('/local-groups', { toast: false }).catch(() => null);
+  if (res?.tip) tip.value = res.tip;
+});
 </script>
 
 <template>
   <view class="page">
     <text class="title">同城家长群</text>
     <text class="big">敬请期待</text>
-    <text class="sub">同城家长交流群正在筹备中，上线后会第一时间通知您</text>
+    <text class="sub">{{ tip }}</text>
   </view>
 </template>
 

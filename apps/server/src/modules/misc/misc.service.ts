@@ -196,6 +196,15 @@ export class MiscService {
 
   // ==================== 设置全集（§5.8，Step 16） ====================
 
+  /** 隐私开关回显（前端初始化用，字段与 PUT 返回一致） */
+  async getPrivacy(userId: bigint) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { cityOnlyVisible: true, bigPayNotifyChild: true },
+    });
+    return { cityOnlyVisible: user.cityOnlyVisible, bigPayNotifyChild: user.bigPayNotifyChild };
+  }
+
   /** 隐私开关：仅同城可见 / 子女协助管理（大额支付通知子女，阈值读 big_pay_threshold，I1） */
   async updatePrivacy(userId: bigint, dto: { cityOnlyVisible?: boolean; bigPayNotifyChild?: boolean }) {
     const user = await this.prisma.user.update({

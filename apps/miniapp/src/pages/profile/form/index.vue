@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
+import { onLoad } from '@dcloudio/uni-app';
 import { http } from '@/api/http';
 import { EDUCATION_OPTIONS, INCOME_OPTIONS, MARITAL_OPTIONS } from '@/api/options';
 
 // 建档表单（PRD §5.2/§5.9 字段）→ POST /profiles 存草稿，下一步进承诺书发布
+// 带 ?profileId 时为编辑模式：回填 + PUT（修改后服务端重置 PENDING 重审）
 const relation = uni.getStorageSync('qj_relation') || 'MOTHER';
+const editId = ref('');
 const relationLabel: Record<string, string> = { FATHER: '孩子', MOTHER: '孩子', SELF: '本人' };
 
 const form = reactive({
@@ -21,6 +24,25 @@ const form = reactive({
 });
 const photoKeys = ref<string[]>([]);
 const submitting = ref(false);
+
+onLoad(async (q) => {
+  const id = (q as { profileId?: string })?.profileId;
+  if (!id) return;
+  editId.value = id;
+  const p = await http.get<Record<string, unknown>>(`/profiles/${id}`).catch(() => null);
+  if (!p) return;
+  form.gender = String(p.gender);
+  form.birthYear = String(p.birthYear);
+  form.heightCm = String(p.heightCm);
+  form.education = String(p.education);
+  form.occupation = String(p.occupation ?? '');
+  form.incomeRange = String(p.incomeRange ?? 'UNDISCLOSED');
+  form.maritalStatus = String(p.maritalStatus ?? 'UNMARRIED');
+  form.residenceCity = String(p.residenceCity ?? '');
+  form.residenceDistrict = String(p.residenceDistrict ?? '');
+  form.intro = String(p.intro ?? '');
+  photoKeys.value = (p.photoObjectKeys as string[]) ?? [];
+});
 
 const eduLabels = computed(() => EDUCATION_OPTIONS.map((o) => o.label));
 const incomeLabels = computed(() => INCOME_OPTIONS.map((o) => o.label));
@@ -54,7 +76,7 @@ async function submit() {
   }
   submitting.value = true;
   try {
-    const p = await http.post<{ id: string }>('/profiles', {
+    const payload = {
       relation,
       gender: form.gender,
       birthYear: Number(form.birthYear),
@@ -67,7 +89,18 @@ async function submit() {
       residenceDistrict: form.residenceDistrict.trim() || undefined,
       intro: form.intro.trim() || undefined,
       photoObjectKeys: photoKeys.value,
-    });
+    };
+    if (editId.value) {
+      await http.put(`/profiles/${editId.value}`, payload);
+      uni.showModal({
+        title: '已保存',
+        content: '资料修改后需要重新审核，通过后自动恢复展示',
+        showCancel: false,
+        success: () => uni.navigateBack(),
+      });
+      return;
+    }
+    const p = await http.post<{ id: string }>('/profiles', payload);
     uni.setStorageSync('qj_profile_id', p.id);
     uni.navigateTo({ url: '/pages/profile/commitment/index' });
   } catch {
@@ -150,7 +183,7 @@ async function submit() {
       </view>
     </view>
 
-    <button class="big-btn" :loading="submitting" @click="submit">下一步：签署承诺书</button>
+    <button class="big-btn" :loading="submitting" @click="submit">{{ editId ? '保存修改（需重新审核）' : '下一步：签署承诺书' }}</button>
   </view>
 </template>
 

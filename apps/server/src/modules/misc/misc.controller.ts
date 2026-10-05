@@ -60,6 +60,12 @@ export class MiscController {
     return this.misc.listOpsSlots(type);
   }
 
+  @Get('settings/privacy')
+  @UseGuards(JwtAuthGuard)
+  getPrivacy(@CurrentUserId() userId: bigint) {
+    return this.misc.getPrivacy(userId);
+  }
+
   @Put('settings/privacy')
   @UseGuards(JwtAuthGuard)
   putPrivacy(@CurrentUserId() userId: bigint, @Body() dto: UpdatePrivacyDto) {
