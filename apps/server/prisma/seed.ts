@@ -161,7 +161,7 @@ async function main() {
       content: {
         title: '防诈提醒',
         text: '凡是要求转账、汇款、刷单、投资的都是诈骗！解锁前请勿透露手机号/微信号',
-        linkPage: 'pages/safety/guide/index',
+        linkPage: 'pages/mine/anti-fraud/index',
       },
       startAt: new Date('2026-01-01T00:00:00Z'),
       endAt: new Date('2099-12-31T23:59:59Z'),

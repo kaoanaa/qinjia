@@ -56,6 +56,11 @@ function goEdit() {
   uni.navigateTo({ url: `/pages/profile/form/index?profileId=${p.value.id}` });
 }
 
+function goConsent() {
+  if (!p.value) return;
+  uni.navigateTo({ url: `/pages/cert/child-consent/index?profileId=${p.value.id}` });
+}
+
 const housingText: Record<string, string> = { OWNED_FULL: '有房(全款)', OWNED_MORTGAGE: '有房(贷款)', NONE: '无房', UNDISCLOSED: '保密' };
 const carText: Record<string, string> = { OWNED: '有车', NONE: '无车', UNDISCLOSED: '保密' };
 const auditText: Record<string, string> = { DRAFT: '草稿（未发布）', PENDING: '审核中', APPROVED: '已通过，正常展示', REJECTED: '未通过，请修改后重新提交' };
@@ -94,7 +99,7 @@ const auditText: Record<string, string> = { DRAFT: '草稿（未发布）', PEND
         <text v-if="p.expectEducation" class="e-item">学历要求：{{ labelOf(EDUCATION_OPTIONS, p.expectEducation) }}及以上</text>
         <text v-if="p.expectCity" class="e-item">地区要求：{{ p.expectCity }}</text>
       </view>
-      <text v-if="p.consentStatus === 'PENDING'" class="warn">子女授权待完成，授权通过后才能发布</text>
+      <text v-if="p.consentStatus === 'PENDING'" class="warn" @click="goConsent">子女授权待完成，授权通过后才能发布 › 点击完成授权</text>
     </view>
 
     <text v-if="p" class="edit" @click="goEdit">编辑资料（修改后需重新审核）</text>
