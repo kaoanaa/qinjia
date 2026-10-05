@@ -245,6 +245,9 @@ export class UnlockService {
       id: conv.id.toString(),
       imConvId: conv.imConvId ?? '',
       counterpart: {
+        // 真实 IM 建会话/发消息需对方 identifier（=userId）；联系升级需 profileId
+        userId: counterpartUserId.toString(),
+        profileId: counterpartProfileId.toString(),
         nickname: cpUser.nickname,
         relation: cpProfile.relation,
         memberBadge: cpUser.memberLevel === 'PAID' || cpUser.memberLevel === 'TRIAL',

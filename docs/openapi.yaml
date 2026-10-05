@@ -1939,6 +1939,8 @@ components:
           type: object
           description: 会话头：对方代理人身份+徽章+编号+子女摘要（§5.6）
           properties:
+            userId: { type: string, description: 对方 IM identifier（=userId，发消息/建会话必需） }
+            profileId: { type: string, description: 对方生效档案 id（联系升级三动作入参） }
             nickname: { type: string }
             relation: { type: string }
             memberBadge: { type: boolean }
