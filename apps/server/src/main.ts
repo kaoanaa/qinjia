@@ -23,6 +23,7 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new AllExceptionsFilter());
+  app.enableCors({ origin: true }); // H5 预览（:5173）直连 API；生产由网关控制
   app.enableShutdownHooks();
   await app.listen(process.env.PORT ? Number(process.env.PORT) : 3000);
 }
